@@ -398,50 +398,57 @@
     //    Everything added to anchor.group appears on the marker.
     const anchor = mindarThree.addAnchor(0);
 
-    // Correct orientation (marker PNG was compiled in portrait)
-    anchor.group.rotation.z = Math.PI / 2;
-
     // ══════════════════════════════════════════════════════════
-    //  AR CONTENT — CUSTOMIZE HERE
-    //  Replace or extend the objects below with your own 3D
-    //  models, videos, images, or animations.
-    //  All coordinates are in marker-space:
-    //    X: left(-) / right(+)
-    //    Y: up(+)   / down(-)
-    //    Z: toward camera(+) / away(-)
+    //  AR CONTENT
+    //  Z = toward camera (floating above marker)
+    //  X/Y = on the marker surface
     //  The marker fills roughly -0.5 to 0.5 in X and Y.
     // ══════════════════════════════════════════════════════════
 
-    // ── CAMD diamond logo (extruded shape) ────────────────────
-    const diamondShape = new THREE.Shape();
-    diamondShape.moveTo( 0,    0.22);
-    diamondShape.lineTo( 0.22, 0   );
-    diamondShape.lineTo( 0,   -0.22);
-    diamondShape.lineTo(-0.22, 0   );
-    diamondShape.closePath();
-
-    const extrudeSettings = { depth: 0.06, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3 };
-    const diamondGeo  = new THREE.ExtrudeGeometry(diamondShape, extrudeSettings);
-    const diamondMat  = new THREE.MeshStandardMaterial({
-      color:     0x1a1a1a,
-      metalness: 0.6,
+    // ── Glowing ring at the base (flat on the marker) ─────────
+    const ringGeo = new THREE.TorusGeometry(0.3, 0.015, 8, 64);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color:     0xc8102e,
+      emissive:  0xc8102e,
+      emissiveIntensity: 0.8,
+      metalness: 0.4,
       roughness: 0.3,
     });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(0, 0, 0.02);
+    anchor.group.add(ring);
+
+    // ── CAMD diamond logo (floating above marker) ─────────────
+    const diamondShape = new THREE.Shape();
+    diamondShape.moveTo( 0,    0.18);
+    diamondShape.lineTo( 0.18, 0   );
+    diamondShape.lineTo( 0,   -0.18);
+    diamondShape.lineTo(-0.18, 0   );
+    diamondShape.closePath();
+
+    const extrudeSettings = { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3 };
+    const diamondGeo  = new THREE.ExtrudeGeometry(diamondShape, extrudeSettings);
+    const diamondMat  = new THREE.MeshStandardMaterial({
+      color:     0x2a2a2a,
+      emissive:  0xc8102e,
+      emissiveIntensity: 0.15,
+      metalness: 0.7,
+      roughness: 0.2,
+    });
     const diamond = new THREE.Mesh(diamondGeo, diamondMat);
-    diamond.position.set(0, 0.25, 0.08);
-    diamond.rotation.z = 0;
+    diamond.position.set(0, 0, 0.4);
     anchor.group.add(diamond);
 
     // ── Floating particles orbiting the diamond ───────────────
     const particleGroup = new THREE.Group();
     const particleMat   = new THREE.MeshStandardMaterial({ color: 0xc8102e, metalness: 0.8, roughness: 0.2 });
-    const orbitRadii    = [0.38, 0.32, 0.44];
+    const orbitRadii    = [0.28, 0.22, 0.34];
     const orbitSpeeds   = [1.0,  -1.4,  0.8];
-    const orbitTilts    = [0,     0.6,  1.1];
+    const orbitTilts    = [0.3,   0.8,  1.2];
     const particles     = [];
 
     for (let i = 0; i < 12; i++) {
-      const geo  = new THREE.SphereGeometry(0.025 - (i % 3) * 0.005, 8, 8);
+      const geo  = new THREE.SphereGeometry(0.02 - (i % 3) * 0.004, 8, 8);
       const mesh = new THREE.Mesh(geo, particleMat);
       const orb  = orbitRadii[i % 3];
       const angle = (i / 12) * Math.PI * 2;
@@ -454,52 +461,14 @@
       particleGroup.add(mesh);
       particles.push(mesh);
     }
-    particleGroup.position.set(0, 0.25, 0.08);
+    particleGroup.position.set(0, 0, 0.4);
     anchor.group.add(particleGroup);
 
-    // ── Glowing ring around base ──────────────────────────────
-    const ringGeo = new THREE.TorusGeometry(0.35, 0.012, 8, 64);
-    const ringMat = new THREE.MeshStandardMaterial({
-      color:     0xc8102e,
-      emissive:  0xc8102e,
-      emissiveIntensity: 0.8,
-      metalness: 0.4,
-      roughness: 0.3,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(0, 0, 0.01);
-    anchor.group.add(ring);
-
-    // ── Corner bracket lines (echoing the marker design) ──────
-    const bracketMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a, linewidth: 2 });
-    const brackets = [
-      { pos: [-0.42,  0.42, 0.01], rx:  0, ry: 0 },
-      { pos: [ 0.42,  0.42, 0.01], rx:  0, ry: Math.PI / 2 },
-      { pos: [-0.42, -0.42, 0.01], rx:  0, ry: -Math.PI / 2 },
-      { pos: [ 0.42, -0.42, 0.01], rx:  0, ry: Math.PI },
-    ];
-    brackets.forEach(b => {
-      const points = [
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(0.1, 0, 0),
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(0, 0.1, 0),
-      ];
-      const geo  = new THREE.BufferGeometry().setFromPoints(points);
-      const line = new THREE.Line(geo, bracketMat);
-      line.position.set(...b.pos);
-      line.rotation.y = b.ry;
-      anchor.group.add(line);
-    });
-
     // ── Text plane: "CAMD" label above the diamond ────────────
-    //    Using a canvas texture for crisp text rendering
     const canvas  = document.createElement('canvas');
     canvas.width  = 512;
     canvas.height = 128;
     const ctx     = canvas.getContext('2d');
-    ctx.fillStyle = 'transparent';
     ctx.clearRect(0, 0, 512, 128);
     ctx.fillStyle = '#ffffff';
     ctx.font      = 'bold 72px Georgia, serif';
@@ -507,10 +476,10 @@
     ctx.textBaseline = 'middle';
     ctx.fillText('CAMD', 256, 64);
     const textTex  = new THREE.CanvasTexture(canvas);
-    const textGeo  = new THREE.PlaneGeometry(0.55, 0.14);
+    const textGeo  = new THREE.PlaneGeometry(0.45, 0.12);
     const textMat  = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
     const textMesh = new THREE.Mesh(textGeo, textMat);
-    textMesh.position.set(0, 0.6, 0.08);
+    textMesh.position.set(0, 0, 0.65);
     anchor.group.add(textMesh);
 
     // ── Sub-label: "Northeastern University" ──────────────────
@@ -525,10 +494,10 @@
     ctx2.textBaseline = 'middle';
     ctx2.fillText('Northeastern University', 384, 48);
     const textTex2  = new THREE.CanvasTexture(canvas2);
-    const textGeo2  = new THREE.PlaneGeometry(0.65, 0.08);
+    const textGeo2  = new THREE.PlaneGeometry(0.55, 0.07);
     const textMat2  = new THREE.MeshBasicMaterial({ map: textTex2, transparent: true, side: THREE.DoubleSide });
     const textMesh2 = new THREE.Mesh(textGeo2, textMat2);
-    textMesh2.position.set(0, 0.5, 0.08);
+    textMesh2.position.set(0, 0, 0.58);
     anchor.group.add(textMesh2);
 
     // ══════════════════════════════════════════════════════════
@@ -564,27 +533,27 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Rotate + bob the diamond
+      // Rotate + bob the diamond (bob along Z = float up/down above marker)
       diamond.rotation.z = t * 0.6;
-      diamond.position.y = 0.25 + Math.sin(t * 1.8) * 0.04;
+      diamond.position.z = 0.4 + Math.sin(t * 1.8) * 0.05;
 
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
       ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
 
-      // Orbit particles
+      // Orbit particles (orbit in XY plane around the diamond)
       particles.forEach(p => {
         const d = p.userData;
         const a = d.initAngle + t * d.orbitSpeed;
         p.position.x = Math.cos(a) * d.orbitRadius;
-        p.position.y = Math.sin(a) * Math.cos(d.orbitTilt) * d.orbitRadius;
-        p.position.z = Math.sin(a) * Math.sin(d.orbitTilt) * d.orbitRadius * 0.5;
+        p.position.y = Math.sin(a) * d.orbitRadius;
+        p.position.z = Math.sin(a * 2) * 0.08;
         p.scale.setScalar(0.85 + Math.sin(t * 2 + d.initAngle) * 0.15);
       });
 
-      // Float the text label
-      textMesh.position.y  = 0.62 + Math.sin(t * 1.5 + 0.5) * 0.03;
-      textMesh2.position.y = 0.50 + Math.sin(t * 1.5 + 0.5) * 0.03;
+      // Float the text labels (bob along Z)
+      textMesh.position.z  = 0.65 + Math.sin(t * 1.5 + 0.5) * 0.03;
+      textMesh2.position.z = 0.58 + Math.sin(t * 1.5 + 0.5) * 0.03;
 
       renderer.render(scene, camera);
     });
