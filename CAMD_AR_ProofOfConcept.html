@@ -429,14 +429,16 @@
     const extrudeSettings = { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3 };
     const diamondGeo  = new THREE.ExtrudeGeometry(diamondShape, extrudeSettings);
     const diamondMat  = new THREE.MeshStandardMaterial({
-      color:     0x2a2a2a,
+      color:     0x111111,
       emissive:  0xc8102e,
-      emissiveIntensity: 0.15,
-      metalness: 0.7,
-      roughness: 0.2,
+      emissiveIntensity: 0.1,
+      metalness: 0.8,
+      roughness: 0.15,
     });
     const diamond = new THREE.Mesh(diamondGeo, diamondMat);
     diamond.position.set(0, 0, 0.4);
+    // Stand the diamond upright (perpendicular to marker surface)
+    diamond.rotation.x = Math.PI / 2;
     anchor.group.add(diamond);
 
     // ── Floating particles orbiting the diamond ───────────────
