@@ -398,6 +398,9 @@
     //    Everything added to anchor.group appears on the marker.
     const anchor = mindarThree.addAnchor(0);
 
+    // Correct orientation (marker PNG was compiled in portrait)
+    anchor.group.rotation.z = -Math.PI / 2;
+
     // ══════════════════════════════════════════════════════════
     //  AR CONTENT — CUSTOMIZE HERE
     //  Replace or extend the objects below with your own 3D
