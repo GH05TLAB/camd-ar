@@ -35,8 +35,15 @@
   ═══════════════════════════════════════════════════════════════════ -->
 
   <!-- Mind AR + Three.js (WebAR engine — no install needed) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -332,31 +339,11 @@
     <div id="scan-hint">Point camera at CAMD marker</div>
   </div>
 
-  <script>
-  // ═══════════════════════════════════════════════════════════════
-  //  CAMD AR — MIND AR.JS PROOF OF CONCEPT
-  //  Mind AR docs: https://hiukim.github.io/mind-ar-js-doc/
-  // ═══════════════════════════════════════════════════════════════
+  <script type="module">
+  import * as THREE from 'three';
+  import { MindARThree } from 'mindar-image-three';
 
-  // ── CONFIG ─────────────────────────────────────────────────────
-  // Replace MARKER_MIND_FILE_URL with your compiled .mind file.
-  // A .mind file is a binary tracking descriptor generated from
-  // your marker image using Mind AR's compiler tool:
-  //   https://hiukim.github.io/mind-ar-js-doc/tools/compile
-  //
-  // IMPORTANT: In this POC, we inline a placeholder URL.
-  // For production, upload the compiled .mind file to your server
-  // and replace the URL below.
-  //
-  // To compile your marker:
-  //   1. Go to https://hiukim.github.io/mind-ar-js-doc/tools/compile
-  //   2. Upload AR_Marker_Design_CAMD_v01a.pdf (or a PNG export)
-  //   3. Download targets.mind
-  //   4. Host it alongside this HTML file
-  //   5. Replace the URL below with the relative path: './targets.mind'
-  // ───────────────────────────────────────────────────────────────
   const MARKER_MIND_FILE_URL = './targets.mind';
-  // ───────────────────────────────────────────────────────────────
 
   let mindarThree = null;
   let animFrameId  = null;
@@ -384,7 +371,7 @@
     arUI.style.display          = 'block';
 
     // ── 1. Initialise Mind AR + Three.js renderer ──────────────
-    mindarThree = new window.MINDAR.IMAGE.MindARThree({
+    mindarThree = new MindARThree({
       container:      arContainer,
       imageTargetSrc: MARKER_MIND_FILE_URL,   // compiled .mind file
       maxTrack:       1,                       // track 1 marker at a time
