@@ -455,11 +455,15 @@
       lctx.fillText(letter, 64, 68);
       const letterTex = new THREE.CanvasTexture(letterCanvas);
 
-      // Apply letter texture only to the front face (+Z)
+      // BoxGeometry face order: +X, -X, +Y, -Y, +Z (top/camera), -Z (bottom)
+      const letterFaceMat = new THREE.MeshStandardMaterial({ map: letterTex, metalness: 0.3, roughness: 0.4 });
       const materials = [
-        cubeMat, cubeMat, cubeMat, cubeMat,
-        cubeMat,
-        new THREE.MeshStandardMaterial({ map: letterTex, metalness: 0.3, roughness: 0.4 }),
+        cubeMat,       // +X (right)
+        cubeMat,       // -X (left)
+        cubeMat,       // +Y (front in marker space)
+        cubeMat,       // -Y (back)
+        letterFaceMat, // +Z (top, facing camera)
+        cubeMat,       // -Z (bottom)
       ];
       cube.material = materials;
 
@@ -495,25 +499,7 @@
     particleGroup.position.set(0, 0, 0.4);
     anchor.group.add(particleGroup);
 
-    // ── Text plane: "CAMD" label above the diamond ────────────
-    const canvas  = document.createElement('canvas');
-    canvas.width  = 512;
-    canvas.height = 128;
-    const ctx     = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 512, 128);
-    ctx.fillStyle = '#ffffff';
-    ctx.font      = 'bold 72px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('CAMD', 256, 64);
-    const textTex  = new THREE.CanvasTexture(canvas);
-    const textGeo  = new THREE.PlaneGeometry(0.45, 0.12);
-    const textMat  = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
-    const textMesh = new THREE.Mesh(textGeo, textMat);
-    textMesh.position.set(0, 0, 0.65);
-    anchor.group.add(textMesh);
-
-    // ── Sub-label: "Northeastern University" ──────────────────
+    // ── Sub-label: "Northeastern University" below the ring ───
     const canvas2 = document.createElement('canvas');
     canvas2.width  = 768;
     canvas2.height = 96;
@@ -528,7 +514,7 @@
     const textGeo2  = new THREE.PlaneGeometry(0.55, 0.07);
     const textMat2  = new THREE.MeshBasicMaterial({ map: textTex2, transparent: true, side: THREE.DoubleSide });
     const textMesh2 = new THREE.Mesh(textGeo2, textMat2);
-    textMesh2.position.set(0, 0, 0.58);
+    textMesh2.position.set(0, -0.42, 0.02);
     anchor.group.add(textMesh2);
 
     // ══════════════════════════════════════════════════════════
@@ -582,9 +568,8 @@
         p.scale.setScalar(0.85 + Math.sin(t * 2 + d.initAngle) * 0.15);
       });
 
-      // Float the text labels (bob along Z)
-      textMesh.position.z  = 0.65 + Math.sin(t * 1.5 + 0.5) * 0.03;
-      textMesh2.position.z = 0.58 + Math.sin(t * 1.5 + 0.5) * 0.03;
+      // Gentle bob on the Northeastern label
+      textMesh2.position.z = 0.02 + Math.sin(t * 1.5 + 0.5) * 0.01;
 
       renderer.render(scene, camera);
     });
