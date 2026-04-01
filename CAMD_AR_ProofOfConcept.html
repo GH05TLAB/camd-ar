@@ -418,28 +418,57 @@
     ring.position.set(0, 0, 0.02);
     anchor.group.add(ring);
 
-    // ── CAMD diamond logo (floating above marker) ─────────────
-    const diamondShape = new THREE.Shape();
-    diamondShape.moveTo( 0,    0.18);
-    diamondShape.lineTo( 0.18, 0   );
-    diamondShape.lineTo( 0,   -0.18);
-    diamondShape.lineTo(-0.18, 0   );
-    diamondShape.closePath();
+    // ── CAMD 2x2 logo (floating above marker) ───────────────
+    const camdGroup = new THREE.Group();
+    const letters = ['C', 'A', 'M', 'D'];
+    const positions = [
+      [-0.065,  0.065],  // C = top-left
+      [ 0.065,  0.065],  // A = top-right
+      [-0.065, -0.065],  // M = bottom-left
+      [ 0.065, -0.065],  // D = bottom-right
+    ];
+    const cubeSize = 0.12;
+    const gap = 0.01;
 
-    const extrudeSettings = { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3 };
-    const diamondGeo  = new THREE.ExtrudeGeometry(diamondShape, extrudeSettings);
-    const diamondMat  = new THREE.MeshStandardMaterial({
-      color:     0x111111,
-      emissive:  0xc8102e,
-      emissiveIntensity: 0.1,
-      metalness: 0.8,
-      roughness: 0.15,
+    letters.forEach((letter, i) => {
+      // Black cube
+      const cubeGeo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+      const cubeMat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        metalness: 0.3,
+        roughness: 0.4,
+      });
+      const cube = new THREE.Mesh(cubeGeo, cubeMat);
+      cube.position.set(positions[i][0], positions[i][1], 0);
+
+      // Letter texture on the front face (facing camera = +Z)
+      const letterCanvas = document.createElement('canvas');
+      letterCanvas.width = 128;
+      letterCanvas.height = 128;
+      const lctx = letterCanvas.getContext('2d');
+      lctx.fillStyle = '#000000';
+      lctx.fillRect(0, 0, 128, 128);
+      lctx.fillStyle = '#ffffff';
+      lctx.font = 'bold 80px Georgia, serif';
+      lctx.textAlign = 'center';
+      lctx.textBaseline = 'middle';
+      lctx.fillText(letter, 64, 68);
+      const letterTex = new THREE.CanvasTexture(letterCanvas);
+
+      // Apply letter texture only to the front face (+Z)
+      const materials = [
+        cubeMat, cubeMat, cubeMat, cubeMat,
+        cubeMat,
+        new THREE.MeshStandardMaterial({ map: letterTex, metalness: 0.3, roughness: 0.4 }),
+      ];
+      cube.material = materials;
+
+      camdGroup.add(cube);
     });
-    const diamond = new THREE.Mesh(diamondGeo, diamondMat);
-    diamond.position.set(0, 0, 0.4);
-    // Stand the diamond upright (perpendicular to marker surface)
-    diamond.rotation.x = Math.PI / 2;
-    anchor.group.add(diamond);
+
+    camdGroup.position.set(0, 0, 0.4);
+    anchor.group.add(camdGroup);
+    const diamond = camdGroup; // alias for animation loop
 
     // ── Floating particles orbiting the diamond ───────────────
     const particleGroup = new THREE.Group();
