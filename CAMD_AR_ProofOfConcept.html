@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>CAMD AR — Proof of Concept</title>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       CAMD AR PROOF OF CONCEPT
+       Northeastern University · College of Arts, Media and Design
+       
+       HOW IT WORKS:
+       ─────────────
+       Mind AR.js tracks the CAMD marker image using your phone's camera.
+       When detected, a Three.js 3D animation is overlaid on the marker.
+       Everything runs in the browser — no app install required.
+
+       TO DEPLOY:
+       ──────────
+       1. Host this file on any HTTPS server (GitHub Pages, Netlify, NU server)
+       2. Print the CAMD marker (AR_Marker_Design_CAMD_v01a.pdf)
+       3. Visit the URL on any modern mobile browser
+       4. Tap "Start AR" and point camera at the printed marker
+       5. The animation appears anchored to the marker
+
+       CUSTOMIZING THE ANIMATION:
+       ──────────────────────────
+       See the "AR CONTENT — CUSTOMIZE HERE" section below.
+       Replace the geometry, materials, or animations with your own.
+       For 3D models: load .glb files using THREE.GLTFLoader.
+
+       MIND AR.JS DOCUMENTATION:
+       ─────────────────────────
+       https://hiukim.github.io/mind-ar-js-doc/
+  ═══════════════════════════════════════════════════════════════════ -->
+
+  <!-- Mind AR + Three.js (WebAR engine — no install needed) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --camd-black: #1a1a1a;
+      --camd-red:   #c8102e;   /* Northeastern red */
+      --camd-white: #ffffff;
+      --camd-grey:  #f4f4f4;
+    }
+
+    body {
+      background: var(--camd-black);
+      font-family: 'Georgia', serif;
+      color: var(--camd-white);
+      overflow: hidden;
+      height: 100dvh;
+      width: 100dvw;
+    }
+
+    /* ── AR canvas container (Mind AR injects camera feed here) ── */
+    #ar-container {
+      position: fixed;
+      inset: 0;
+      display: none;
+    }
+
+    /* ── Splash / launch screen ── */
+    #splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--camd-black);
+      gap: 2rem;
+      padding: 2rem;
+      z-index: 100;
+    }
+
+    .splash-logo {
+      width: 80px;
+      height: 80px;
+      background: var(--camd-white);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      padding: 10px;
+      gap: 3px;
+    }
+    .splash-logo span {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--camd-black);
+      color: var(--camd-white);
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: 'Georgia', serif;
+    }
+
+    .splash-title {
+      text-align: center;
+      line-height: 1.3;
+    }
+    .splash-title h1 {
+      font-size: clamp(1.4rem, 5vw, 2rem);
+      font-weight: 400;
+      letter-spacing: 0.05em;
+    }
+    .splash-title p {
+      font-size: 0.85rem;
+      opacity: 0.55;
+      margin-top: 0.4rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .splash-instructions {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 4px;
+      padding: 1.2rem 1.6rem;
+      font-size: 0.82rem;
+      line-height: 1.8;
+      font-family: 'Courier New', monospace;
+      color: rgba(255,255,255,0.7);
+      max-width: 340px;
+      width: 100%;
+    }
+    .splash-instructions strong {
+      color: var(--camd-white);
+      font-weight: 700;
+    }
+
+    #start-btn {
+      background: var(--camd-red);
+      color: var(--camd-white);
+      border: none;
+      padding: 1rem 3rem;
+      font-size: 1rem;
+      font-family: 'Georgia', serif;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    #start-btn:hover  { background: #a50d26; }
+    #start-btn:active { transform: scale(0.97); }
+
+    /* ── In-AR UI overlay ── */
+    #ar-ui {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+
+    #ar-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 1rem 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    }
+    .ar-logo-small {
+      width: 36px; height: 36px;
+      background: var(--camd-white);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      padding: 4px; gap: 2px;
+    }
+    .ar-logo-small span {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--camd-black);
+      color: var(--camd-white);
+      font-size: 0.5rem; font-weight: 700;
+      font-family: 'Georgia', serif;
+    }
+    #ar-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-family: 'Courier New', monospace;
+      opacity: 0.8;
+    }
+
+    #stop-btn {
+      pointer-events: all;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: white;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.7rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    #stop-btn:active { background: rgba(255,255,255,0.3); }
+
+    #scan-hint {
+      position: absolute;
+      bottom: 2.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      font-size: 0.75rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.5);
+      padding: 0.5rem 1.2rem;
+      border-radius: 2px;
+      white-space: nowrap;
+      transition: opacity 0.5s;
+    }
+    #scan-hint.hidden { opacity: 0; }
+
+    /* pulse ring shown while scanning */
+    .scan-ring {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 120px; height: 120px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-radius: 50%;
+      animation: pulse-ring 2s ease-out infinite;
+    }
+    .scan-ring:nth-child(2) { animation-delay: 0.7s; }
+    .scan-ring:nth-child(3) { animation-delay: 1.4s; }
+
+    @keyframes pulse-ring {
+      0%   { transform: translate(-50%,-50%) scale(0.6); opacity: 0.6; }
+      100% { transform: translate(-50%,-50%) scale(1.8); opacity: 0; }
+    }
+
+    #scan-rings { transition: opacity 0.4s; }
+    #scan-rings.hidden { opacity: 0; pointer-events: none; }
+
+    /* loading state */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: var(--camd-black);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1.2rem; z-index: 200;
+    }
+    #loading-overlay.hidden { display: none; }
+    .loader-bar {
+      width: 200px; height: 2px;
+      background: rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+    .loader-fill {
+      height: 100%;
+      background: var(--camd-red);
+      animation: loader 1.8s ease-in-out infinite;
+    }
+    @keyframes loader {
+      0%   { width: 0%; margin-left: 0%; }
+      50%  { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+    .loader-text {
+      font-size: 0.72rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Loading overlay (shown while Mind AR initialises) ── -->
+  <div id="loading-overlay" class="hidden">
+    <div class="ar-logo-small" style="width:48px;height:48px;padding:6px;gap:3px;">
+      <span style="font-size:0.65rem">C</span>
+      <span style="font-size:0.65rem">A</span>
+      <span style="font-size:0.65rem">M</span>
+      <span style="font-size:0.65rem">D</span>
+    </div>
+    <div class="loader-bar"><div class="loader-fill"></div></div>
+    <div class="loader-text">Initialising AR engine…</div>
+  </div>
+
+  <!-- ── Splash screen ── -->
+  <div id="splash">
+    <div class="splash-logo">
+      <span>C</span><span>A</span>
+      <span>M</span><span>D</span>
+    </div>
+    <div class="splash-title">
+      <h1>CAMD Augmented Reality</h1>
+      <p>Northeastern University · Proof of Concept</p>
+    </div>
+    <div class="splash-instructions">
+      <strong>1.</strong> Print the CAMD AR marker<br>
+      <strong>2.</strong> Tap <em>Start AR</em> and allow camera access<br>
+      <strong>3.</strong> Point your camera at the printed marker<br>
+      <strong>4.</strong> Watch the animation appear on the marker
+    </div>
+    <button id="start-btn">Start AR</button>
+  </div>
+
+  <!-- ── AR camera feed container ── -->
+  <div id="ar-container"></div>
+
+  <!-- ── In-AR HUD overlay ── -->
+  <div id="ar-ui">
+    <div id="ar-header">
+      <div class="ar-logo-small">
+        <span>C</span><span>A</span>
+        <span>M</span><span>D</span>
+      </div>
+      <span id="ar-label">AR Experience</span>
+      <button id="stop-btn">✕ Exit</button>
+    </div>
+    <div id="scan-rings">
+      <div class="scan-ring"></div>
+      <div class="scan-ring"></div>
+      <div class="scan-ring"></div>
+    </div>
+    <div id="scan-hint">Point camera at CAMD marker</div>
+  </div>
+
+  <script>
+  // ═══════════════════════════════════════════════════════════════
+  //  CAMD AR — MIND AR.JS PROOF OF CONCEPT
+  //  Mind AR docs: https://hiukim.github.io/mind-ar-js-doc/
+  // ═══════════════════════════════════════════════════════════════
+
+  // ── CONFIG ─────────────────────────────────────────────────────
+  // Replace MARKER_MIND_FILE_URL with your compiled .mind file.
+  // A .mind file is a binary tracking descriptor generated from
+  // your marker image using Mind AR's compiler tool:
+  //   https://hiukim.github.io/mind-ar-js-doc/tools/compile
+  //
+  // IMPORTANT: In this POC, we inline a placeholder URL.
+  // For production, upload the compiled .mind file to your server
+  // and replace the URL below.
+  //
+  // To compile your marker:
+  //   1. Go to https://hiukim.github.io/mind-ar-js-doc/tools/compile
+  //   2. Upload AR_Marker_Design_CAMD_v01a.pdf (or a PNG export)
+  //   3. Download targets.mind
+  //   4. Host it alongside this HTML file
+  //   5. Replace the URL below with the relative path: './targets.mind'
+  // ───────────────────────────────────────────────────────────────
+  const MARKER_MIND_FILE_URL = './targets.mind';
+  // ───────────────────────────────────────────────────────────────
+
+  let mindarThree = null;
+  let animFrameId  = null;
+  let clock        = null;
+  let markerFound  = false;
+
+  // DOM refs
+  const splash          = document.getElementById('splash');
+  const arContainer     = document.getElementById('ar-container');
+  const arUI            = document.getElementById('ar-ui');
+  const loadingOverlay  = document.getElementById('loading-overlay');
+  const startBtn        = document.getElementById('start-btn');
+  const stopBtn         = document.getElementById('stop-btn');
+  const scanHint        = document.getElementById('scan-hint');
+  const scanRings       = document.getElementById('scan-rings');
+
+  // ── LAUNCH ─────────────────────────────────────────────────────
+  startBtn.addEventListener('click', startAR);
+  stopBtn.addEventListener('click',  stopAR);
+
+  async function startAR() {
+    splash.style.display        = 'none';
+    loadingOverlay.classList.remove('hidden');
+    arContainer.style.display   = 'block';
+    arUI.style.display          = 'block';
+
+    // ── 1. Initialise Mind AR + Three.js renderer ──────────────
+    mindarThree = new window.MINDAR.IMAGE.MindARThree({
+      container:      arContainer,
+      imageTargetSrc: MARKER_MIND_FILE_URL,   // compiled .mind file
+      maxTrack:       1,                       // track 1 marker at a time
+      uiLoading:      'no',                    // we handle our own loading UI
+      uiScanning:     'no',                    // we handle our own scanning UI
+      uiError:        'no',
+    });
+
+    const { renderer, scene, camera } = mindarThree;
+
+    // ── 2. Lighting ────────────────────────────────────────────
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(2, 4, 3);
+    scene.add(dirLight);
+
+    const rimLight = new THREE.DirectionalLight(0xc8102e, 0.5); // NU red rim
+    rimLight.position.set(-3, 1, -2);
+    scene.add(rimLight);
+
+    // ── 3. Attach an anchor to marker index 0 ─────────────────
+    //    Everything added to anchor.group appears on the marker.
+    const anchor = mindarThree.addAnchor(0);
+
+    // ══════════════════════════════════════════════════════════
+    //  AR CONTENT — CUSTOMIZE HERE
+    //  Replace or extend the objects below with your own 3D
+    //  models, videos, images, or animations.
+    //  All coordinates are in marker-space:
+    //    X: left(-) / right(+)
+    //    Y: up(+)   / down(-)
+    //    Z: toward camera(+) / away(-)
+    //  The marker fills roughly -0.5 to 0.5 in X and Y.
+    // ══════════════════════════════════════════════════════════
+
+    // ── CAMD diamond logo (extruded shape) ────────────────────
+    const diamondShape = new THREE.Shape();
+    diamondShape.moveTo( 0,    0.22);
+    diamondShape.lineTo( 0.22, 0   );
+    diamondShape.lineTo( 0,   -0.22);
+    diamondShape.lineTo(-0.22, 0   );
+    diamondShape.closePath();
+
+    const extrudeSettings = { depth: 0.06, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3 };
+    const diamondGeo  = new THREE.ExtrudeGeometry(diamondShape, extrudeSettings);
+    const diamondMat  = new THREE.MeshStandardMaterial({
+      color:     0x1a1a1a,
+      metalness: 0.6,
+      roughness: 0.3,
+    });
+    const diamond = new THREE.Mesh(diamondGeo, diamondMat);
+    diamond.position.set(0, 0.25, 0.08);
+    diamond.rotation.z = 0;
+    anchor.group.add(diamond);
+
+    // ── Floating particles orbiting the diamond ───────────────
+    const particleGroup = new THREE.Group();
+    const particleMat   = new THREE.MeshStandardMaterial({ color: 0xc8102e, metalness: 0.8, roughness: 0.2 });
+    const orbitRadii    = [0.38, 0.32, 0.44];
+    const orbitSpeeds   = [1.0,  -1.4,  0.8];
+    const orbitTilts    = [0,     0.6,  1.1];
+    const particles     = [];
+
+    for (let i = 0; i < 12; i++) {
+      const geo  = new THREE.SphereGeometry(0.025 - (i % 3) * 0.005, 8, 8);
+      const mesh = new THREE.Mesh(geo, particleMat);
+      const orb  = orbitRadii[i % 3];
+      const angle = (i / 12) * Math.PI * 2;
+      mesh.userData = {
+        orbitRadius: orb,
+        orbitSpeed:  orbitSpeeds[i % 3] * (0.8 + Math.random() * 0.4),
+        orbitTilt:   orbitTilts[i % 3],
+        initAngle:   angle,
+      };
+      particleGroup.add(mesh);
+      particles.push(mesh);
+    }
+    particleGroup.position.set(0, 0.25, 0.08);
+    anchor.group.add(particleGroup);
+
+    // ── Glowing ring around base ──────────────────────────────
+    const ringGeo = new THREE.TorusGeometry(0.35, 0.012, 8, 64);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color:     0xc8102e,
+      emissive:  0xc8102e,
+      emissiveIntensity: 0.8,
+      metalness: 0.4,
+      roughness: 0.3,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(0, 0, 0.01);
+    anchor.group.add(ring);
+
+    // ── Corner bracket lines (echoing the marker design) ──────
+    const bracketMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a, linewidth: 2 });
+    const brackets = [
+      { pos: [-0.42,  0.42, 0.01], rx:  0, ry: 0 },
+      { pos: [ 0.42,  0.42, 0.01], rx:  0, ry: Math.PI / 2 },
+      { pos: [-0.42, -0.42, 0.01], rx:  0, ry: -Math.PI / 2 },
+      { pos: [ 0.42, -0.42, 0.01], rx:  0, ry: Math.PI },
+    ];
+    brackets.forEach(b => {
+      const points = [
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0.1, 0, 0),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0.1, 0),
+      ];
+      const geo  = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geo, bracketMat);
+      line.position.set(...b.pos);
+      line.rotation.y = b.ry;
+      anchor.group.add(line);
+    });
+
+    // ── Text plane: "CAMD" label above the diamond ────────────
+    //    Using a canvas texture for crisp text rendering
+    const canvas  = document.createElement('canvas');
+    canvas.width  = 512;
+    canvas.height = 128;
+    const ctx     = canvas.getContext('2d');
+    ctx.fillStyle = 'transparent';
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = '#ffffff';
+    ctx.font      = 'bold 72px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CAMD', 256, 64);
+    const textTex  = new THREE.CanvasTexture(canvas);
+    const textGeo  = new THREE.PlaneGeometry(0.55, 0.14);
+    const textMat  = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
+    const textMesh = new THREE.Mesh(textGeo, textMat);
+    textMesh.position.set(0, 0.6, 0.08);
+    anchor.group.add(textMesh);
+
+    // ── Sub-label: "Northeastern University" ──────────────────
+    const canvas2 = document.createElement('canvas');
+    canvas2.width  = 768;
+    canvas2.height = 96;
+    const ctx2    = canvas2.getContext('2d');
+    ctx2.clearRect(0, 0, 768, 96);
+    ctx2.fillStyle = 'rgba(200,16,46,1)';
+    ctx2.font      = '400 40px Georgia, serif';
+    ctx2.textAlign = 'center';
+    ctx2.textBaseline = 'middle';
+    ctx2.fillText('Northeastern University', 384, 48);
+    const textTex2  = new THREE.CanvasTexture(canvas2);
+    const textGeo2  = new THREE.PlaneGeometry(0.65, 0.08);
+    const textMat2  = new THREE.MeshBasicMaterial({ map: textTex2, transparent: true, side: THREE.DoubleSide });
+    const textMesh2 = new THREE.Mesh(textGeo2, textMat2);
+    textMesh2.position.set(0, 0.5, 0.08);
+    anchor.group.add(textMesh2);
+
+    // ══════════════════════════════════════════════════════════
+    //  END OF AR CONTENT
+    // ══════════════════════════════════════════════════════════
+
+    // ── 4. Marker found/lost callbacks ────────────────────────
+    anchor.onTargetFound = () => {
+      markerFound = true;
+      scanHint.classList.add('hidden');
+      scanRings.classList.add('hidden');
+    };
+    anchor.onTargetLost = () => {
+      markerFound = false;
+      scanHint.classList.remove('hidden');
+      scanRings.classList.remove('hidden');
+    };
+
+    // ── 5. Start Mind AR ──────────────────────────────────────
+    try {
+      await mindarThree.start();
+    } catch (err) {
+      console.error('Mind AR start error:', err);
+      alert('Could not start AR. Make sure you are on HTTPS and have granted camera permission.');
+      stopAR();
+      return;
+    }
+
+    loadingOverlay.classList.add('hidden');
+    clock = new THREE.Clock();
+
+    // ── 6. Render loop ────────────────────────────────────────
+    renderer.setAnimationLoop(() => {
+      const t = clock.getElapsedTime();
+
+      // Rotate + bob the diamond
+      diamond.rotation.z = t * 0.6;
+      diamond.position.y = 0.25 + Math.sin(t * 1.8) * 0.04;
+
+      // Pulse the ring
+      ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
+      ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
+
+      // Orbit particles
+      particles.forEach(p => {
+        const d = p.userData;
+        const a = d.initAngle + t * d.orbitSpeed;
+        p.position.x = Math.cos(a) * d.orbitRadius;
+        p.position.y = Math.sin(a) * Math.cos(d.orbitTilt) * d.orbitRadius;
+        p.position.z = Math.sin(a) * Math.sin(d.orbitTilt) * d.orbitRadius * 0.5;
+        p.scale.setScalar(0.85 + Math.sin(t * 2 + d.initAngle) * 0.15);
+      });
+
+      // Float the text label
+      textMesh.position.y  = 0.62 + Math.sin(t * 1.5 + 0.5) * 0.03;
+      textMesh2.position.y = 0.50 + Math.sin(t * 1.5 + 0.5) * 0.03;
+
+      renderer.render(scene, camera);
+    });
+  }
+
+  // ── STOP AR ──────────────────────────────────────────────────
+  async function stopAR() {
+    if (mindarThree) {
+      try { await mindarThree.stop(); } catch(e) {}
+      mindarThree.renderer.setAnimationLoop(null);
+      mindarThree = null;
+    }
+    markerFound = false;
+    arContainer.innerHTML  = '';
+    arContainer.style.display = 'none';
+    arUI.style.display        = 'none';
+    loadingOverlay.classList.add('hidden');
+    scanHint.classList.remove('hidden');
+    scanRings.classList.remove('hidden');
+    splash.style.display = 'flex';
+  }
+  </script>
+</body>
+</html>
