@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>CAMD AR — Arcade Cabinet</title>
+
+  <!-- Mind AR + Three.js (WebAR engine) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --camd-black: #1a1a1a;
+      --camd-red:   #c8102e;
+      --camd-white: #ffffff;
+    }
+
+    body {
+      background: var(--camd-black);
+      font-family: 'Georgia', serif;
+      color: var(--camd-white);
+      overflow: hidden;
+      height: 100dvh;
+      width: 100dvw;
+    }
+
+    #ar-container {
+      position: fixed;
+      inset: 0;
+      display: none;
+    }
+
+    /* ── Splash / launch screen ── */
+    #splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--camd-black);
+      gap: 2rem;
+      padding: 2rem;
+      z-index: 100;
+    }
+
+    .splash-logo {
+      width: 80px;
+      height: 80px;
+      background: var(--camd-white);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      padding: 10px;
+      gap: 3px;
+    }
+    .splash-logo span {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--camd-black);
+      color: var(--camd-white);
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: 'Georgia', serif;
+    }
+
+    .splash-title {
+      text-align: center;
+      line-height: 1.3;
+    }
+    .splash-title h1 {
+      font-size: clamp(1.4rem, 5vw, 2rem);
+      font-weight: 400;
+      letter-spacing: 0.05em;
+    }
+    .splash-title p {
+      font-size: 0.85rem;
+      opacity: 0.55;
+      margin-top: 0.4rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .splash-instructions {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 4px;
+      padding: 1.2rem 1.6rem;
+      font-size: 0.82rem;
+      line-height: 1.8;
+      font-family: 'Courier New', monospace;
+      color: rgba(255,255,255,0.7);
+      max-width: 340px;
+      width: 100%;
+    }
+    .splash-instructions strong {
+      color: var(--camd-white);
+      font-weight: 700;
+    }
+
+    #start-btn {
+      background: var(--camd-red);
+      color: var(--camd-white);
+      border: none;
+      padding: 1rem 3rem;
+      font-size: 1rem;
+      font-family: 'Georgia', serif;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    #start-btn:hover  { background: #a50d26; }
+    #start-btn:active { transform: scale(0.97); }
+
+    /* ── In-AR UI overlay ── */
+    #ar-ui {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+
+    #ar-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 1rem 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    }
+    .ar-logo-small {
+      width: 36px; height: 36px;
+      background: var(--camd-white);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      padding: 4px; gap: 2px;
+    }
+    .ar-logo-small span {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--camd-black);
+      color: var(--camd-white);
+      font-size: 0.5rem; font-weight: 700;
+      font-family: 'Georgia', serif;
+    }
+    #ar-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-family: 'Courier New', monospace;
+      opacity: 0.8;
+    }
+
+    #stop-btn {
+      pointer-events: all;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: white;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.7rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    #stop-btn:active { background: rgba(255,255,255,0.3); }
+
+    #scan-hint {
+      position: absolute;
+      bottom: 2.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      font-size: 0.75rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.5);
+      padding: 0.5rem 1.2rem;
+      border-radius: 2px;
+      white-space: nowrap;
+      transition: opacity 0.5s;
+    }
+    #scan-hint.hidden { opacity: 0; }
+
+    .scan-ring {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 120px; height: 120px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-radius: 50%;
+      animation: pulse-ring 2s ease-out infinite;
+    }
+    .scan-ring:nth-child(2) { animation-delay: 0.7s; }
+    .scan-ring:nth-child(3) { animation-delay: 1.4s; }
+
+    @keyframes pulse-ring {
+      0%   { transform: translate(-50%,-50%) scale(0.6); opacity: 0.6; }
+      100% { transform: translate(-50%,-50%) scale(1.8); opacity: 0; }
+    }
+
+    #scan-rings { transition: opacity 0.4s; }
+    #scan-rings.hidden { opacity: 0; pointer-events: none; }
+
+    /* loading state */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: var(--camd-black);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1.2rem; z-index: 200;
+    }
+    #loading-overlay.hidden { display: none; }
+    .loader-bar {
+      width: 200px; height: 2px;
+      background: rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+    .loader-fill {
+      height: 100%;
+      background: var(--camd-red);
+      animation: loader 1.8s ease-in-out infinite;
+    }
+    @keyframes loader {
+      0%   { width: 0%; margin-left: 0%; }
+      50%  { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+    .loader-text {
+      font-size: 0.72rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Loading overlay ── -->
+  <div id="loading-overlay" class="hidden">
+    <div class="ar-logo-small" style="width:48px;height:48px;padding:6px;gap:3px;">
+      <span style="font-size:0.65rem">C</span>
+      <span style="font-size:0.65rem">A</span>
+      <span style="font-size:0.65rem">M</span>
+      <span style="font-size:0.65rem">D</span>
+    </div>
+    <div class="loader-bar"><div class="loader-fill"></div></div>
+    <div class="loader-text">Loading Arcade Cabinet…</div>
+  </div>
+
+  <!-- ── Splash screen ── -->
+  <div id="splash">
+    <div class="splash-logo">
+      <span>C</span><span>A</span>
+      <span>M</span><span>D</span>
+    </div>
+    <div class="splash-title">
+      <h1>CAMD AR — Arcade Cabinet</h1>
+      <p>Northeastern University · AR Experience</p>
+    </div>
+    <div class="splash-instructions">
+      <strong>1.</strong> Print the CAMD AR marker<br>
+      <strong>2.</strong> Tap <em>Start AR</em> and allow camera access<br>
+      <strong>3.</strong> Point your camera at the printed marker<br>
+      <strong>4.</strong> Watch the arcade cabinet appear on the marker
+    </div>
+    <button id="start-btn">Start AR</button>
+  </div>
+
+  <!-- ── AR camera feed container ── -->
+  <div id="ar-container"></div>
+
+  <!-- ── In-AR HUD overlay ── -->
+  <div id="ar-ui">
+    <div id="ar-header">
+      <div class="ar-logo-small">
+        <span>C</span><span>A</span>
+        <span>M</span><span>D</span>
+      </div>
+      <span id="ar-label">Arcade Cabinet</span>
+      <button id="stop-btn">✕ Exit</button>
+    </div>
+    <div id="scan-rings">
+      <div class="scan-ring"></div>
+      <div class="scan-ring"></div>
+      <div class="scan-ring"></div>
+    </div>
+    <div id="scan-hint">Point camera at CAMD marker</div>
+  </div>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+  import { MindARThree } from 'mindar-image-three';
+
+  const MARKER_MIND_FILE_URL = './targets.mind';
+
+  let mindarThree = null;
+  let clock        = null;
+  let markerFound  = false;
+  let cabinetModel = null;
+
+  // DOM refs
+  const splash          = document.getElementById('splash');
+  const arContainer     = document.getElementById('ar-container');
+  const arUI            = document.getElementById('ar-ui');
+  const loadingOverlay  = document.getElementById('loading-overlay');
+  const startBtn        = document.getElementById('start-btn');
+  const stopBtn         = document.getElementById('stop-btn');
+  const scanHint        = document.getElementById('scan-hint');
+  const scanRings       = document.getElementById('scan-rings');
+
+  startBtn.addEventListener('click', startAR);
+  stopBtn.addEventListener('click',  stopAR);
+
+  // ── Load FBX model with textures ─────────────────────────────
+  function loadArcadeCabinet() {
+    return new Promise((resolve, reject) => {
+      const loader = new FBXLoader();
+      const texLoader = new THREE.TextureLoader();
+
+      // Pre-load textures
+      const albedoTex   = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_AlbedoTransparency.png');
+      const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
+      const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
+
+      // Unity-exported textures need flipY = false to match FBX UVs
+      [albedoTex, emissionTex, specularTex].forEach(t => {
+        t.flipY = false;
+      });
+
+      loader.load(
+        './Arcade_Cabinet/Arcade_Cabinet.fbx',
+        (fbx) => {
+          // Apply textures to all meshes in the model
+          fbx.traverse((child) => {
+            if (child.isMesh) {
+              child.material = new THREE.MeshStandardMaterial({
+                map:          albedoTex,
+                emissiveMap:  emissionTex,
+                emissive:     new THREE.Color(0xffffff),
+                emissiveIntensity: 0.6,
+                metalness:    0.3,
+                roughness:    0.6,
+              });
+              child.castShadow    = true;
+              child.receiveShadow = true;
+            }
+          });
+
+          // Stand the cabinet upright: rotate -90° around X so Y-up becomes Z-up
+          fbx.rotation.x = -Math.PI / 2;
+
+          // FBX files are often in cm — scale down to fit the marker
+          const box  = new THREE.Box3().setFromObject(fbx);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale  = 0.6 / maxDim; // fit within ~0.6 units
+          fbx.scale.setScalar(scale);
+
+          // Re-center on XY and place just above marker
+          box.setFromObject(fbx);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          fbx.position.x = -center.x;
+          fbx.position.y = -center.y;
+          fbx.position.z = -new THREE.Box3().setFromObject(fbx).min.z + 0.02;
+          fbx.userData.baseZ = fbx.position.z;
+
+          resolve(fbx);
+        },
+        undefined,
+        (err) => reject(err)
+      );
+    });
+  }
+
+  // ── LAUNCH ───────────────────────────────────────────────────
+  async function startAR() {
+    splash.style.display        = 'none';
+    loadingOverlay.classList.remove('hidden');
+    arContainer.style.display   = 'block';
+    arUI.style.display          = 'block';
+
+    // 1. Initialise Mind AR + Three.js
+    mindarThree = new MindARThree({
+      container:      arContainer,
+      imageTargetSrc: MARKER_MIND_FILE_URL,
+      maxTrack:       1,
+      uiLoading:      'no',
+      uiScanning:     'no',
+      uiError:        'no',
+    });
+
+    const { renderer, scene, camera } = mindarThree;
+
+    // 2. Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(2, 4, 3);
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    fillLight.position.set(-2, 1, -2);
+    scene.add(fillLight);
+
+    // 3. Anchor to marker index 0
+    const anchor = mindarThree.addAnchor(0);
+
+    // 4. Load and add the arcade cabinet
+    try {
+      cabinetModel = await loadArcadeCabinet();
+      anchor.group.add(cabinetModel);
+    } catch (err) {
+      console.error('Failed to load Arcade Cabinet:', err);
+      alert('Could not load the 3D model. Check that Arcade_Cabinet files are present.');
+      stopAR();
+      return;
+    }
+
+    // 5. Marker callbacks
+    anchor.onTargetFound = () => {
+      markerFound = true;
+      scanHint.classList.add('hidden');
+      scanRings.classList.add('hidden');
+    };
+    anchor.onTargetLost = () => {
+      markerFound = false;
+      scanHint.classList.remove('hidden');
+      scanRings.classList.remove('hidden');
+    };
+
+    // 6. Start Mind AR
+    try {
+      await mindarThree.start();
+    } catch (err) {
+      console.error('Mind AR start error:', err);
+      alert('Could not start AR. Make sure you are on HTTPS and have granted camera permission.');
+      stopAR();
+      return;
+    }
+
+    loadingOverlay.classList.add('hidden');
+    clock = new THREE.Clock();
+
+    // 7. Render loop — gentle idle rotation
+    renderer.setAnimationLoop(() => {
+      const t = clock.getElapsedTime();
+
+      if (cabinetModel) {
+        // Gentle hover (no spin — cabinet stays facing forward)
+        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.02;
+      }
+
+      renderer.render(scene, camera);
+    });
+  }
+
+  // ── STOP AR ──────────────────────────────────────────────────
+  async function stopAR() {
+    if (mindarThree) {
+      try { await mindarThree.stop(); } catch(e) {}
+      mindarThree.renderer.setAnimationLoop(null);
+      mindarThree = null;
+    }
+    markerFound    = false;
+    cabinetModel   = null;
+    arContainer.innerHTML     = '';
+    arContainer.style.display = 'none';
+    arUI.style.display        = 'none';
+    loadingOverlay.classList.add('hidden');
+    scanHint.classList.remove('hidden');
+    scanRings.classList.remove('hidden');
+    splash.style.display = 'flex';
+  }
+  </script>
+</body>
+</html>
