@@ -332,7 +332,52 @@
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
 
-  // ── Load FBX model with textures ─────────────────────────────
+  // ── Video element for the arcade screen ──────────────────────
+  // To use a real video: place your .mp4 in the project folder
+  // and set VIDEO_URL to its path (e.g. './game_footage.mp4')
+  const VIDEO_URL = null; // Set to video file path when ready
+  let videoElement = null;
+  let videoTexture = null;
+
+  function createScreenTexture() {
+    if (VIDEO_URL) {
+      // Real video mode
+      videoElement = document.createElement('video');
+      videoElement.src = VIDEO_URL;
+      videoElement.loop = true;
+      videoElement.muted = true;
+      videoElement.playsInline = true;
+      videoElement.crossOrigin = 'anonymous';
+      videoElement.play();
+      videoTexture = new THREE.VideoTexture(videoElement);
+      videoTexture.minFilter = THREE.LinearFilter;
+      videoTexture.magFilter = THREE.LinearFilter;
+      return videoTexture;
+    } else {
+      // Placeholder: animated canvas showing "GAMES AT NORTHEASTERN"
+      const c = document.createElement('canvas');
+      c.width = 512; c.height = 384;
+      const ctx = c.getContext('2d');
+
+      // Draw placeholder screen
+      ctx.fillStyle = '#0a0a2a';
+      ctx.fillRect(0, 0, 512, 384);
+      ctx.fillStyle = '#c8102e';
+      ctx.font = 'bold 36px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('GAMES AT', 256, 150);
+      ctx.fillText('NORTHEASTERN', 256, 200);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '18px Courier New, monospace';
+      ctx.fillText('Video Coming Soon', 256, 280);
+
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+  }
+
+  // ── Load FBX models (cabinet + video screen) ────────────────
   function loadArcadeCabinet() {
     return new Promise((resolve, reject) => {
       const loader = new FBXLoader();
@@ -343,77 +388,107 @@
       const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
       const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
 
-      loader.load(
-        './Arcade_Cabinet/Arcade_Cabinet.fbx',
-        (fbx) => {
-          // Apply textures to all meshes, keeping original UVs
-          fbx.traverse((child) => {
+      // Load both FBX files in parallel
+      let cabinetFbx = null;
+      let screenFbx = null;
+      let loadCount = 0;
+
+      function onAllLoaded() {
+        // Apply textures to cabinet meshes
+        cabinetFbx.traverse((child) => {
+          if (child.isMesh) {
+            child.material = new THREE.MeshStandardMaterial({
+              map:          albedoTex,
+              emissiveMap:  emissionTex,
+              emissive:     new THREE.Color(0xffffff),
+              emissiveIntensity: 0.6,
+              metalness:    0.3,
+              roughness:    0.6,
+            });
+            child.castShadow    = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        // Apply video/placeholder texture to screen
+        const screenTex = createScreenTexture();
+        if (screenFbx) {
+          screenFbx.traverse((child) => {
             if (child.isMesh) {
-              child.material = new THREE.MeshStandardMaterial({
-                map:          albedoTex,
-                emissiveMap:  emissionTex,
-                emissive:     new THREE.Color(0xffffff),
-                emissiveIntensity: 0.6,
-                metalness:    0.3,
-                roughness:    0.6,
+              child.material = new THREE.MeshBasicMaterial({
+                map: screenTex,
+                side: THREE.DoubleSide,
               });
-              child.castShadow    = true;
-              child.receiveShadow = true;
             }
           });
+        }
 
-          // Wrap in a pivot group for clean rotation
-          const pivot = new THREE.Group();
-          pivot.add(fbx);
+        // Wrap in a pivot group
+        const pivot = new THREE.Group();
+        pivot.add(cabinetFbx);
+        if (screenFbx) pivot.add(screenFbx);
 
-          // Measure the raw bounding box to find the tallest axis
-          const rawBox = new THREE.Box3().setFromObject(pivot);
-          const rawSize = new THREE.Vector3();
-          rawBox.getSize(rawSize);
+        // Measure to find tallest axis
+        const rawBox = new THREE.Box3().setFromObject(pivot);
+        const rawSize = new THREE.Vector3();
+        rawBox.getSize(rawSize);
+        console.log('FBX raw size:', rawSize.x.toFixed(2), rawSize.y.toFixed(2), rawSize.z.toFixed(2));
 
-          console.log('FBX raw size:', rawSize.x.toFixed(2), rawSize.y.toFixed(2), rawSize.z.toFixed(2));
+        // Rotate tallest axis to Z (toward camera)
+        const dims = [
+          { axis: 'x', val: rawSize.x },
+          { axis: 'y', val: rawSize.y },
+          { axis: 'z', val: rawSize.z },
+        ];
+        dims.sort((a, b) => b.val - a.val);
+        const tallest = dims[0].axis;
 
-          // The tallest axis is the cabinet's height — rotate it to align with Z (toward camera)
-          const dims = [
-            { axis: 'x', val: rawSize.x },
-            { axis: 'y', val: rawSize.y },
-            { axis: 'z', val: rawSize.z },
-          ];
-          dims.sort((a, b) => b.val - a.val);
-          const tallest = dims[0].axis;
+        // Apply same rotation to both models
+        const rot = new THREE.Euler();
+        if (tallest === 'y') rot.x = Math.PI / 2;
+        else if (tallest === 'x') rot.y = Math.PI / 2;
 
-          if (tallest === 'y') {
-            // Y is tallest: rotate +90° on X so top faces camera (+Z)
-            fbx.rotation.x = Math.PI / 2;
-          } else if (tallest === 'x') {
-            // X is tallest: rotate 90° on Y to make X become Z
-            fbx.rotation.y = Math.PI / 2;
-          }
-          // If Z is already tallest, no rotation needed
+        cabinetFbx.rotation.copy(rot);
+        if (screenFbx) screenFbx.rotation.copy(rot);
 
-          // Scale to fit within the marker
-          const box = new THREE.Box3().setFromObject(pivot);
-          const size = new THREE.Vector3();
-          box.getSize(size);
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 0.5 / maxDim;
-          pivot.scale.setScalar(scale);
+        // Scale to fit marker
+        const box = new THREE.Box3().setFromObject(pivot);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 0.5 / maxDim;
+        pivot.scale.setScalar(scale);
 
-          // Center on XY, place base on the marker
-          const scaledBox = new THREE.Box3().setFromObject(pivot);
-          const center = new THREE.Vector3();
-          scaledBox.getCenter(center);
-          pivot.position.x = -center.x;
-          pivot.position.y = -center.y;
-          pivot.position.z = -scaledBox.min.z + 0.02;
-          pivot.userData.baseZ = pivot.position.z;
+        // Center on XY, place base on marker
+        const scaledBox = new THREE.Box3().setFromObject(pivot);
+        const center = new THREE.Vector3();
+        scaledBox.getCenter(center);
+        pivot.position.x = -center.x;
+        pivot.position.y = -center.y;
+        pivot.position.z = -scaledBox.min.z + 0.02;
+        pivot.userData.baseZ = pivot.position.z;
 
-          resolve(pivot);
+        resolve(pivot);
+      }
 
-          resolve(fbx);
-        },
+      // Load arcade cabinet
+      loader.load(
+        './Arcade_Cabinet/Arcade_Cabinet.fbx',
+        (fbx) => { cabinetFbx = fbx; loadCount++; if (loadCount >= 2) onAllLoaded(); },
         undefined,
         (err) => reject(err)
+      );
+
+      // Load video rectangle screen
+      loader.load(
+        './Arcade_Cabinet/video_rectangle.fbx',
+        (fbx) => { screenFbx = fbx; loadCount++; if (loadCount >= 2) onAllLoaded(); },
+        undefined,
+        () => {
+          // If video_rectangle fails to load, continue without it
+          console.warn('video_rectangle.fbx not found, skipping screen');
+          screenFbx = null; loadCount++; if (loadCount >= 2) onAllLoaded();
+        }
       );
     });
   }
