@@ -508,6 +508,9 @@
       uiLoading:      'no',
       uiScanning:     'no',
       uiError:        'no',
+      // Smoothing filters — reduces jitter significantly
+      filterMinCF:    0.0001,   // lower = smoother (default: 0.001)
+      filterBeta:     10,       // lower = smoother (default: 1000)
     });
 
     const { renderer, scene, camera } = mindarThree;
