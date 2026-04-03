@@ -383,8 +383,8 @@
           const tallest = dims[0].axis;
 
           if (tallest === 'y') {
-            // Y is tallest: rotate -90° on X to make Y become Z
-            fbx.rotation.x = -Math.PI / 2;
+            // Y is tallest: rotate +90° on X so top faces camera (+Z)
+            fbx.rotation.x = Math.PI / 2;
           } else if (tallest === 'x') {
             // X is tallest: rotate 90° on Y to make X become Z
             fbx.rotation.y = Math.PI / 2;
