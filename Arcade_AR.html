@@ -343,7 +343,10 @@
       const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
       const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
 
-      // FBX UVs expect flipY = true (the default), so no override needed
+      // Unity-exported textures need flipY = false to match FBX UVs
+      [albedoTex, emissionTex, specularTex].forEach(t => {
+        t.flipY = false;
+      });
 
       loader.load(
         './Arcade_Cabinet/Arcade_Cabinet.fbx',
@@ -364,9 +367,9 @@
             }
           });
 
-          // Rotate to stand upright: FBX is Y-up, MindAR marker Z = toward camera
-          // Rotate +90° around X so the cabinet stands upright (Z toward camera)
-          fbx.rotation.x = Math.PI / 2;
+          // FBX is Y-up, MindAR marker Z = toward camera (up from table)
+          // Rotate -90° around X: Y-up → Z-up (toward camera)
+          fbx.rotation.x = -Math.PI / 2;
 
           // FBX files are often in cm — scale down to fit the marker
           const box  = new THREE.Box3().setFromObject(fbx);
