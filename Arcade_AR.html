@@ -367,6 +367,9 @@
             }
           });
 
+          // Stand the cabinet upright: rotate -90° around X so Y-up becomes Z-up
+          fbx.rotation.x = -Math.PI / 2;
+
           // FBX files are often in cm — scale down to fit the marker
           const box  = new THREE.Box3().setFromObject(fbx);
           const size = new THREE.Vector3();
