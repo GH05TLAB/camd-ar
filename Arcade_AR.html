@@ -343,10 +343,7 @@
       const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
       const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
 
-      // Flip textures for correct UV mapping
-      [albedoTex, emissionTex, specularTex].forEach(t => {
-        t.flipY = false;
-      });
+      // FBX UVs expect flipY = true (the default), so no override needed
 
       loader.load(
         './Arcade_Cabinet/Arcade_Cabinet.fbx',
@@ -367,8 +364,11 @@
             }
           });
 
+          // Rotate to stand upright: FBX is Y-up, MindAR marker Z = toward camera
+          // Rotate -90° around X so the cabinet's Y-up becomes Z-up
+          fbx.rotation.x = -Math.PI / 2;
+
           // FBX files are often in cm — scale down to fit the marker
-          // The marker space is roughly -0.5 to 0.5, so we normalize
           const box  = new THREE.Box3().setFromObject(fbx);
           const size = new THREE.Vector3();
           box.getSize(size);
@@ -376,16 +376,14 @@
           const scale  = 0.6 / maxDim; // fit within ~0.6 units
           fbx.scale.setScalar(scale);
 
-          // Re-center the model on XY and sit it on the marker surface
+          // Re-center on XY and place just above marker
           box.setFromObject(fbx);
           const center = new THREE.Vector3();
           box.getCenter(center);
           fbx.position.x = -center.x;
           fbx.position.y = -center.y;
-
-          // Float it above the marker (Z is up/toward camera)
-          const newBox = new THREE.Box3().setFromObject(fbx);
-          fbx.position.z = -newBox.min.z + 0.02; // sit just above marker
+          fbx.position.z = -new THREE.Box3().setFromObject(fbx).min.z + 0.02;
+          fbx.userData.baseZ = fbx.position.z;
 
           resolve(fbx);
         },
@@ -469,10 +467,8 @@
       const t = clock.getElapsedTime();
 
       if (cabinetModel) {
-        // Slow rotation around Z axis (vertical in marker space)
-        cabinetModel.rotation.z = t * 0.3;
-        // Gentle float
-        cabinetModel.position.z += Math.sin(t * 1.5) * 0.0003;
+        // Gentle hover (no spin — cabinet stays facing forward)
+        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.02;
       }
 
       renderer.render(scene, camera);
