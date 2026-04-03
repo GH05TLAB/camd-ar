@@ -365,8 +365,8 @@
           });
 
           // Rotate to stand upright: FBX is Y-up, MindAR marker Z = toward camera
-          // Rotate -90° around X so the cabinet's Y-up becomes Z-up
-          fbx.rotation.x = -Math.PI / 2;
+          // Rotate +90° around X so the cabinet stands upright (Z toward camera)
+          fbx.rotation.x = Math.PI / 2;
 
           // FBX files are often in cm — scale down to fit the marker
           const box  = new THREE.Box3().setFromObject(fbx);
