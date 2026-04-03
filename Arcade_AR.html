@@ -343,15 +343,10 @@
       const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
       const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
 
-      // Unity-exported textures need flipY = false to match FBX UVs
-      [albedoTex, emissionTex, specularTex].forEach(t => {
-        t.flipY = false;
-      });
-
       loader.load(
         './Arcade_Cabinet/Arcade_Cabinet.fbx',
         (fbx) => {
-          // Apply textures to all meshes in the model
+          // Apply textures to all meshes, keeping original UVs
           fbx.traverse((child) => {
             if (child.isMesh) {
               child.material = new THREE.MeshStandardMaterial({
@@ -367,25 +362,53 @@
             }
           });
 
-          // Stand the cabinet upright: rotate -90° around X so Y-up becomes Z-up
-          fbx.rotation.x = -Math.PI / 2;
+          // Wrap in a pivot group for clean rotation
+          const pivot = new THREE.Group();
+          pivot.add(fbx);
 
-          // FBX files are often in cm — scale down to fit the marker
-          const box  = new THREE.Box3().setFromObject(fbx);
+          // Measure the raw bounding box to find the tallest axis
+          const rawBox = new THREE.Box3().setFromObject(pivot);
+          const rawSize = new THREE.Vector3();
+          rawBox.getSize(rawSize);
+
+          console.log('FBX raw size:', rawSize.x.toFixed(2), rawSize.y.toFixed(2), rawSize.z.toFixed(2));
+
+          // The tallest axis is the cabinet's height — rotate it to align with Z (toward camera)
+          const dims = [
+            { axis: 'x', val: rawSize.x },
+            { axis: 'y', val: rawSize.y },
+            { axis: 'z', val: rawSize.z },
+          ];
+          dims.sort((a, b) => b.val - a.val);
+          const tallest = dims[0].axis;
+
+          if (tallest === 'y') {
+            // Y is tallest: rotate -90° on X to make Y become Z
+            fbx.rotation.x = -Math.PI / 2;
+          } else if (tallest === 'x') {
+            // X is tallest: rotate 90° on Y to make X become Z
+            fbx.rotation.y = Math.PI / 2;
+          }
+          // If Z is already tallest, no rotation needed
+
+          // Scale to fit within the marker
+          const box = new THREE.Box3().setFromObject(pivot);
           const size = new THREE.Vector3();
           box.getSize(size);
           const maxDim = Math.max(size.x, size.y, size.z);
-          const scale  = 0.6 / maxDim; // fit within ~0.6 units
-          fbx.scale.setScalar(scale);
+          const scale = 0.5 / maxDim;
+          pivot.scale.setScalar(scale);
 
-          // Re-center on XY and place just above marker
-          box.setFromObject(fbx);
+          // Center on XY, place base on the marker
+          const scaledBox = new THREE.Box3().setFromObject(pivot);
           const center = new THREE.Vector3();
-          box.getCenter(center);
-          fbx.position.x = -center.x;
-          fbx.position.y = -center.y;
-          fbx.position.z = -new THREE.Box3().setFromObject(fbx).min.z + 0.02;
-          fbx.userData.baseZ = fbx.position.z;
+          scaledBox.getCenter(center);
+          pivot.position.x = -center.x;
+          pivot.position.y = -center.y;
+          pivot.position.z = -scaledBox.min.z + 0.02;
+          pivot.userData.baseZ = pivot.position.z;
+
+          resolve(pivot);
 
           resolve(fbx);
         },
