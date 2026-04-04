@@ -463,10 +463,10 @@
             child.material = new THREE.MeshStandardMaterial({
               map:          albedoTex,
               emissiveMap:  emissionTex,
-              emissive:     new THREE.Color(0x333333),
-              emissiveIntensity: 0.15,
-              metalness:    0.3,
-              roughness:    0.7,
+              emissive:     new THREE.Color(0x000000),
+              emissiveIntensity: 0,
+              metalness:    0.2,
+              roughness:    0.8,
             });
             child.castShadow    = true;
             child.receiveShadow = true;
@@ -481,6 +481,7 @@
               child.material = new THREE.MeshBasicMaterial({
                 map: screenTex,
                 side: THREE.DoubleSide,
+                color: 0xcccccc,  // slightly darken the video output
               });
             }
           });
@@ -579,13 +580,13 @@
     const { renderer, scene, camera } = mindarThree;
 
     // 2. Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(2, 4, 3);
     scene.add(dirLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.15);
     fillLight.position.set(-2, 1, -2);
     scene.add(fillLight);
 
