@@ -181,6 +181,40 @@
     }
     #stop-btn:active { background: rgba(255,255,255,0.3); }
 
+    #mute-btn {
+      pointer-events: all;
+      position: absolute;
+      bottom: 5rem;
+      right: 1.2rem;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: white;
+      width: 44px; height: 44px;
+      font-size: 1.2rem;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      border-radius: 50%;
+      z-index: 60;
+    }
+    #mute-btn:active { background: rgba(255,255,255,0.2); }
+
+    #play-pause-btn {
+      pointer-events: all;
+      position: absolute;
+      bottom: 5rem;
+      right: 4rem;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: white;
+      width: 44px; height: 44px;
+      font-size: 1.2rem;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      border-radius: 50%;
+      z-index: 60;
+    }
+    #play-pause-btn:active { background: rgba(255,255,255,0.2); }
+
     #scan-hint {
       position: absolute;
       bottom: 2.5rem;
@@ -299,6 +333,8 @@
       <span id="ar-label">Arcade Cabinet</span>
       <button id="stop-btn">✕ Exit</button>
     </div>
+    <button id="play-pause-btn">⏸</button>
+    <button id="mute-btn">🔊</button>
     <div id="scan-rings">
       <div class="scan-ring"></div>
       <div class="scan-ring"></div>
@@ -329,15 +365,39 @@
   const scanHint        = document.getElementById('scan-hint');
   const scanRings       = document.getElementById('scan-rings');
 
+  const muteBtn         = document.getElementById('mute-btn');
+  const playPauseBtn    = document.getElementById('play-pause-btn');
+
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
+
+  // Mute/unmute toggle
+  muteBtn.addEventListener('click', () => {
+    if (!videoElement) return;
+    videoElement.muted = !videoElement.muted;
+    muteBtn.textContent = videoElement.muted ? '🔇' : '🔊';
+  });
+
+  // Play/pause toggle
+  playPauseBtn.addEventListener('click', () => {
+    if (!videoElement) return;
+    if (videoPlaying) {
+      videoElement.pause();
+      playPauseBtn.textContent = '▶';
+    } else {
+      videoElement.play();
+      playPauseBtn.textContent = '⏸';
+    }
+    videoPlaying = !videoPlaying;
+  });
 
   // ── Video element for the arcade screen ──────────────────────
   // To use a real video: place your .mp4 in the project folder
   // and set VIDEO_URL to its path (e.g. './game_footage.mp4')
-  const VIDEO_URL = null; // Set to video file path when ready
+  const VIDEO_URL = './game_footage.mp4'; // Set to null for placeholder
   let videoElement = null;
   let videoTexture = null;
+  let videoPlaying = true;
 
   function createScreenTexture() {
     if (VIDEO_URL) {
@@ -345,10 +405,13 @@
       videoElement = document.createElement('video');
       videoElement.src = VIDEO_URL;
       videoElement.loop = true;
-      videoElement.muted = true;
+      videoElement.muted = true;    // must start muted for autoplay to work
       videoElement.playsInline = true;
       videoElement.crossOrigin = 'anonymous';
-      videoElement.play();
+      videoElement.loop = true;
+      // Don't play yet — wait for marker to be found
+      videoElement.pause();
+      videoPlaying = false;
       videoTexture = new THREE.VideoTexture(videoElement);
       videoTexture.minFilter = THREE.LinearFilter;
       videoTexture.magFilter = THREE.LinearFilter;
@@ -400,10 +463,10 @@
             child.material = new THREE.MeshStandardMaterial({
               map:          albedoTex,
               emissiveMap:  emissionTex,
-              emissive:     new THREE.Color(0xffffff),
-              emissiveIntensity: 0.6,
+              emissive:     new THREE.Color(0x333333),
+              emissiveIntensity: 0.15,
               metalness:    0.3,
-              roughness:    0.6,
+              roughness:    0.7,
             });
             child.castShadow    = true;
             child.receiveShadow = true;
@@ -456,16 +519,16 @@
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 0.5 / maxDim;
+        const scale = 0.75 / maxDim;
         pivot.scale.setScalar(scale);
 
-        // Center on XY, place base on marker
+        // Center on XY, float above marker
         const scaledBox = new THREE.Box3().setFromObject(pivot);
         const center = new THREE.Vector3();
         scaledBox.getCenter(center);
         pivot.position.x = -center.x;
         pivot.position.y = -center.y;
-        pivot.position.z = -scaledBox.min.z + 0.02;
+        pivot.position.z = -scaledBox.min.z + 0.15;
         pivot.userData.baseZ = pivot.position.z;
 
         resolve(pivot);
@@ -516,7 +579,7 @@
     const { renderer, scene, camera } = mindarThree;
 
     // 2. Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(2, 4, 3);
@@ -529,7 +592,35 @@
     // 3. Anchor to marker index 0
     const anchor = mindarThree.addAnchor(0);
 
-    // 4. Load and add the arcade cabinet
+    // 4a. Glowing ring at the base (flat on marker)
+    const ringGeo = new THREE.TorusGeometry(0.55, 0.02, 8, 64);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0xc8102e, emissive: 0xc8102e,
+      emissiveIntensity: 0.8, metalness: 0.4, roughness: 0.3,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(0, 0, 0.02);
+    anchor.group.add(ring);
+
+    // 4b. Orbiting particles (spread from base to top of cabinet)
+    const particleMat = new THREE.MeshStandardMaterial({ color: 0xc8102e, metalness: 0.8, roughness: 0.2 });
+    const particles = [];
+    for (let i = 0; i < 16; i++) {
+      const geo = new THREE.SphereGeometry(0.018, 8, 8);
+      const mesh = new THREE.Mesh(geo, particleMat);
+      mesh.userData = {
+        orbitRadius: 0.55 + Math.random() * 0.25,
+        orbitSpeed: (0.4 + Math.random() * 0.7) * (i % 2 === 0 ? 1 : -1),
+        initAngle: (i / 16) * Math.PI * 2,
+        // Spread particles vertically from base (0.05) to top (~0.9)
+        baseZ: 0.05 + (i / 16) * 0.85,
+        zDrift: 0.05 + Math.random() * 0.05,
+      };
+      anchor.group.add(mesh);
+      particles.push(mesh);
+    }
+
+    // 4c. Load and add the arcade cabinet
     try {
       cabinetModel = await loadArcadeCabinet();
       anchor.group.add(cabinetModel);
@@ -540,16 +631,43 @@
       return;
     }
 
-    // 5. Marker callbacks
+    // 5. Marker callbacks — video starts 1s after marker found, pauses on lost
+    let videoDelayTimer = null;
     anchor.onTargetFound = () => {
       markerFound = true;
       scanHint.classList.add('hidden');
       scanRings.classList.add('hidden');
+      // Start video 1 second after arcade appears
+      if (videoElement) {
+        videoDelayTimer = setTimeout(() => {
+          videoElement.play().then(() => {
+            videoPlaying = true;
+            playPauseBtn.textContent = '⏸';
+            // Try to unmute
+            videoElement.muted = false;
+            muteBtn.textContent = '🔊';
+          }).catch(() => {
+            // Browser blocked unmuted play, stay muted
+            videoElement.muted = true;
+            videoElement.play();
+            videoPlaying = true;
+            playPauseBtn.textContent = '⏸';
+            muteBtn.textContent = '🔇';
+          });
+        }, 1000);
+      }
     };
     anchor.onTargetLost = () => {
       markerFound = false;
       scanHint.classList.remove('hidden');
       scanRings.classList.remove('hidden');
+      // Pause video when marker lost
+      if (videoDelayTimer) { clearTimeout(videoDelayTimer); videoDelayTimer = null; }
+      if (videoElement && videoPlaying) {
+        videoElement.pause();
+        videoPlaying = false;
+        playPauseBtn.textContent = '▶';
+      }
     };
 
     // 6. Start Mind AR
@@ -569,9 +687,22 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
+      // Pulse the ring
+      ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
+      ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
+
+      // Orbit particles (spread vertically around the cabinet)
+      particles.forEach(p => {
+        const d = p.userData;
+        const a = d.initAngle + t * d.orbitSpeed;
+        p.position.x = Math.cos(a) * d.orbitRadius;
+        p.position.y = Math.sin(a) * d.orbitRadius;
+        p.position.z = d.baseZ + Math.sin(t * 1.2 + d.initAngle) * d.zDrift;
+      });
+
       if (cabinetModel) {
-        // Gentle hover (no spin — cabinet stays facing forward)
-        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.02;
+        // Gentle hover
+        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.03;
       }
 
       renderer.render(scene, camera);
