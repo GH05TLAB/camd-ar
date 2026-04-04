@@ -450,6 +450,7 @@
       const albedoTex   = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_AlbedoTransparency.png');
       const emissionTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Emission.png');
       const specularTex = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_SpecularSmoothness.png');
+      const normalTex   = texLoader.load('./Arcade_Cabinet/Unity_Textures/arcade_cabinet_mini_Normal.png');
 
       // Load both FBX files in parallel
       let cabinetFbx = null;
@@ -462,11 +463,12 @@
           if (child.isMesh) {
             child.material = new THREE.MeshStandardMaterial({
               map:          albedoTex,
+              emissive:     new THREE.Color(0xffffff),
               emissiveMap:  emissionTex,
-              emissive:     new THREE.Color(0x000000),
-              emissiveIntensity: 0,
-              metalness:    0.2,
-              roughness:    0.8,
+              emissiveIntensity: 0.8,
+              normalMap:    normalTex,
+              metalness:    0.3,
+              roughness:    0.7,
             });
             child.castShadow    = true;
             child.receiveShadow = true;
@@ -507,10 +509,11 @@
         dims.sort((a, b) => b.val - a.val);
         const tallest = dims[0].axis;
 
-        // Apply same rotation to both models
+        // Apply same rotation to both models + slight backward tilt (~5 degrees)
+        const tilt = 5 * (Math.PI / 180);
         const rot = new THREE.Euler();
-        if (tallest === 'y') rot.x = Math.PI / 2;
-        else if (tallest === 'x') rot.y = Math.PI / 2;
+        if (tallest === 'y') { rot.x = Math.PI / 2 - tilt; }
+        else if (tallest === 'x') { rot.y = Math.PI / 2; rot.x = -tilt; }
 
         cabinetFbx.rotation.copy(rot);
         if (screenFbx) screenFbx.rotation.copy(rot);
@@ -520,7 +523,7 @@
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 0.75 / maxDim;
+        const scale = 1.5 / maxDim;
         pivot.scale.setScalar(scale);
 
         // Center on XY, float above marker
@@ -594,7 +597,7 @@
     const anchor = mindarThree.addAnchor(0);
 
     // 4a. Glowing ring at the base (flat on marker)
-    const ringGeo = new THREE.TorusGeometry(0.55, 0.02, 8, 64);
+    const ringGeo = new THREE.TorusGeometry(0.75, 0.025, 8, 64);
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0xc8102e, emissive: 0xc8102e,
       emissiveIntensity: 0.8, metalness: 0.4, roughness: 0.3,
@@ -607,10 +610,10 @@
     const particleMat = new THREE.MeshStandardMaterial({ color: 0xc8102e, metalness: 0.8, roughness: 0.2 });
     const particles = [];
     for (let i = 0; i < 16; i++) {
-      const geo = new THREE.SphereGeometry(0.018, 8, 8);
+      const geo = new THREE.SphereGeometry(0.03, 8, 8);
       const mesh = new THREE.Mesh(geo, particleMat);
       mesh.userData = {
-        orbitRadius: 0.55 + Math.random() * 0.25,
+        orbitRadius: 0.75 + Math.random() * 0.3,
         orbitSpeed: (0.4 + Math.random() * 0.7) * (i % 2 === 0 ? 1 : -1),
         initAngle: (i / 16) * Math.PI * 2,
         // Spread particles vertically from base (0.05) to top (~0.9)
@@ -632,23 +635,26 @@
       return;
     }
 
-    // 5. Marker callbacks — video starts 1s after marker found, pauses on lost
+    // 5. Marker callbacks — sticky tracking (3s grace period before despawn)
     let videoDelayTimer = null;
+    let despawnTimer = null;
+    let keepVisible = false;
+
     anchor.onTargetFound = () => {
       markerFound = true;
+      keepVisible = true;
+      // Cancel any pending despawn
+      if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
       scanHint.classList.add('hidden');
       scanRings.classList.add('hidden');
       // Start video 1 second after arcade appears
-      if (videoElement) {
+      if (videoElement && !videoPlaying) {
         videoDelayTimer = setTimeout(() => {
           videoElement.play().then(() => {
             videoPlaying = true;
             playPauseBtn.textContent = '⏸';
-            // Try to unmute
-            videoElement.muted = false;
-            muteBtn.textContent = '🔊';
+            muteBtn.textContent = '🔇';
           }).catch(() => {
-            // Browser blocked unmuted play, stay muted
             videoElement.muted = true;
             videoElement.play();
             videoPlaying = true;
@@ -660,15 +666,19 @@
     };
     anchor.onTargetLost = () => {
       markerFound = false;
-      scanHint.classList.remove('hidden');
-      scanRings.classList.remove('hidden');
-      // Pause video when marker lost
-      if (videoDelayTimer) { clearTimeout(videoDelayTimer); videoDelayTimer = null; }
-      if (videoElement && videoPlaying) {
-        videoElement.pause();
-        videoPlaying = false;
-        playPauseBtn.textContent = '▶';
-      }
+      // Keep content visible for 3 seconds before despawning
+      if (despawnTimer) clearTimeout(despawnTimer);
+      despawnTimer = setTimeout(() => {
+        keepVisible = false;
+        scanHint.classList.remove('hidden');
+        scanRings.classList.remove('hidden');
+        if (videoDelayTimer) { clearTimeout(videoDelayTimer); videoDelayTimer = null; }
+        if (videoElement && videoPlaying) {
+          videoElement.pause();
+          videoPlaying = false;
+          playPauseBtn.textContent = '▶';
+        }
+      }, 3000);
     };
 
     // 6. Start Mind AR
@@ -688,6 +698,9 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
+      // Keep content visible during grace period
+      if (keepVisible) anchor.group.visible = true;
+
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
       ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
@@ -704,6 +717,24 @@
       if (cabinetModel) {
         // Gentle hover
         cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.03;
+
+        // Smoothly rotate cabinet to face the camera (around Z axis only)
+        if (markerFound) {
+          try {
+            const camWorld = new THREE.Vector3();
+            camera.getWorldPosition(camWorld);
+            anchor.group.updateWorldMatrix(true, false);
+            const invMatrix = anchor.group.matrixWorld.clone().invert();
+            const camLocal = camWorld.clone().applyMatrix4(invMatrix);
+            const targetAngle = Math.atan2(camLocal.y, camLocal.x) + Math.PI / 2;
+            if (!isNaN(targetAngle)) {
+              let delta = targetAngle - cabinetModel.rotation.z;
+              while (delta > Math.PI) delta -= Math.PI * 2;
+              while (delta < -Math.PI) delta += Math.PI * 2;
+              cabinetModel.rotation.z += delta * 0.015;
+            }
+          } catch(e) {}
+        }
       }
 
       renderer.render(scene, camera);
