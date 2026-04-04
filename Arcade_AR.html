@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>CAMD AR — Arcade Cabinet</title>
+  <title>CAMD AR — Proof of Concept</title>
 
   <!-- Mind AR + Three.js (WebAR engine) -->
   <script type="importmap">
@@ -57,12 +57,13 @@
     .splash-logo {
       width: 80px;
       height: 80px;
-      background: var(--camd-white);
+      background: var(--camd-black);
       display: grid;
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
-      padding: 10px;
-      gap: 3px;
+      padding: 6px;
+      gap: 0px;
+      outline: 3px solid var(--camd-white);
     }
     .splash-logo span {
       display: flex;
@@ -70,7 +71,7 @@
       justify-content: center;
       background: var(--camd-black);
       color: var(--camd-white);
-      font-size: 1.1rem;
+      font-size: 1.6rem;
       font-weight: 700;
       font-family: 'Georgia', serif;
     }
@@ -298,7 +299,7 @@
       <span style="font-size:0.65rem">D</span>
     </div>
     <div class="loader-bar"><div class="loader-fill"></div></div>
-    <div class="loader-text">Loading Arcade Cabinet…</div>
+    <div class="loader-text">Initialising AR engine…</div>
   </div>
 
   <!-- ── Splash screen ── -->
@@ -308,14 +309,14 @@
       <span>M</span><span>D</span>
     </div>
     <div class="splash-title">
-      <h1>CAMD AR — Arcade Cabinet</h1>
+      <h1>CAMD Augmented Reality</h1>
       <p>Northeastern University · AR Experience</p>
     </div>
     <div class="splash-instructions">
-      <strong>1.</strong> Print the CAMD AR marker<br>
-      <strong>2.</strong> Tap <em>Start AR</em> and allow camera access<br>
-      <strong>3.</strong> Point your camera at the printed marker<br>
-      <strong>4.</strong> Watch the arcade cabinet appear on the marker
+      <strong>1.</strong> Tap <em>Start AR</em> below<br>
+      <strong>2.</strong> Allow camera access<br>
+      <strong>3.</strong> Point at the CAMD AR marker<br>
+      <strong>4.</strong> Enjoy the experience
     </div>
     <button id="start-btn">Start AR</button>
   </div>
@@ -326,11 +327,8 @@
   <!-- ── In-AR HUD overlay ── -->
   <div id="ar-ui">
     <div id="ar-header">
-      <div class="ar-logo-small">
-        <span>C</span><span>A</span>
-        <span>M</span><span>D</span>
-      </div>
-      <span id="ar-label">Arcade Cabinet</span>
+      <img src="./nu_logo.png" alt="Northeastern" style="width:36px;height:36px;object-fit:contain;">
+      <span id="ar-label">AR Experience</span>
       <button id="stop-btn">✕ Exit</button>
     </div>
     <button id="play-pause-btn">⏸</button>
