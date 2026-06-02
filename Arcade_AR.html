@@ -604,25 +604,7 @@
     ring.position.set(0, 0, 0.02);
     anchor.group.add(ring);
 
-    // 4b. Orbiting particles (spread from base to top of cabinet)
-    const particleMat = new THREE.MeshStandardMaterial({ color: 0xc8102e, metalness: 0.8, roughness: 0.2 });
-    const particles = [];
-    for (let i = 0; i < 16; i++) {
-      const geo = new THREE.SphereGeometry(0.03, 8, 8);
-      const mesh = new THREE.Mesh(geo, particleMat);
-      mesh.userData = {
-        orbitRadius: 0.75 + Math.random() * 0.3,
-        orbitSpeed: (0.4 + Math.random() * 0.7) * (i % 2 === 0 ? 1 : -1),
-        initAngle: (i / 16) * Math.PI * 2,
-        // Spread particles vertically from base (0.05) to top (~0.9)
-        baseZ: 0.05 + (i / 16) * 0.85,
-        zDrift: 0.05 + Math.random() * 0.05,
-      };
-      anchor.group.add(mesh);
-      particles.push(mesh);
-    }
-
-    // 4c. Load and add the arcade cabinet
+    // 4b. Load and add the arcade cabinet
     try {
       cabinetModel = await loadArcadeCabinet();
       anchor.group.add(cabinetModel);
@@ -702,15 +684,6 @@
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
       ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
-
-      // Orbit particles (spread vertically around the cabinet)
-      particles.forEach(p => {
-        const d = p.userData;
-        const a = d.initAngle + t * d.orbitSpeed;
-        p.position.x = Math.cos(a) * d.orbitRadius;
-        p.position.y = Math.sin(a) * d.orbitRadius;
-        p.position.z = d.baseZ + Math.sin(t * 1.2 + d.initAngle) * d.zDrift;
-      });
 
       if (cabinetModel) {
         // Gentle hover
