@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Deployment workflow
+
+Never commit or push to GitHub unless the user explicitly says "deploy", "push to production", "send to GitHub", or similar. Default workflow:
+1. Make changes locally
+2. User tests on localhost
+3. User gives explicit deploy approval → then commit + push
+
+## Language
+
+The user may communicate in Polish or English. Always respond in the same language they write in. All code, comments, and any text written into the website/HTML files must always be in English.
+
 ## Running the project
 
 This is a static web app — no build step, no package manager. To run it locally:

@@ -558,12 +558,69 @@
     });
   }
 
+  // ── Device orientation (gyroscope) → camera rotation ─────────
+  // Enables 3DoF look-around. After the marker is scanned the camera rotation
+  // is driven by the phone's gyroscope, so content placed in world space stays
+  // fixed as the user turns to look around the room (works on iOS + Android).
+  let gyro      = null;   // latest { alpha, beta, gamma } in degrees
+  let gyroReady = false;
+
+  const _zee   = new THREE.Vector3(0, 0, 1);
+  const _q0    = new THREE.Quaternion();
+  const _q1    = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -90° about X: camera looks out the back of the device
+  const _euler = new THREE.Euler();
+
+  function screenAngleRad() {
+    const deg = (screen.orientation && screen.orientation.angle != null)
+      ? screen.orientation.angle
+      : (window.orientation || 0);
+    return THREE.MathUtils.degToRad(deg);
+  }
+
+  // Convert deviceorientation Euler angles into a Three.js camera quaternion.
+  function gyroToQuaternion(out, g) {
+    const alpha = THREE.MathUtils.degToRad(g.alpha || 0); // Z
+    const beta  = THREE.MathUtils.degToRad(g.beta  || 0); // X
+    const gamma = THREE.MathUtils.degToRad(g.gamma || 0); // Y
+    _euler.set(beta, alpha, -gamma, 'YXZ');
+    out.setFromEuler(_euler);
+    out.multiply(_q1);
+    out.multiply(_q0.setFromAxisAngle(_zee, -screenAngleRad()));
+    return out;
+  }
+
+  function onDeviceOrientation(e) {
+    if (e.alpha == null && e.beta == null && e.gamma == null) return;
+    gyro = { alpha: e.alpha, beta: e.beta, gamma: e.gamma };
+    gyroReady = true;
+  }
+
+  // Must be triggered by a user gesture (the Start button) for iOS 13+.
+  async function enableGyroscope() {
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res !== 'granted') {
+          alert('Motion sensor access is needed to look around. Content will still appear in front of you.');
+        }
+      }
+    } catch (err) {
+      console.warn('Gyroscope permission error:', err);
+    }
+    // Attach regardless — on desktop (no sensor) we fall back to a static view.
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  }
+
   // ── LAUNCH ───────────────────────────────────────────────────
   async function startAR() {
     splash.style.display        = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display   = 'block';
     arUI.style.display          = 'block';
+
+    // Request motion-sensor access while we still have the Start-button gesture
+    await enableGyroscope();
 
     // 1. Initialise Mind AR + Three.js
     mindarThree = new MindARThree({
@@ -594,15 +651,19 @@
     // 3. Anchor to marker index 0
     const anchor = mindarThree.addAnchor(0);
 
-    // World-locked group — lives directly in scene, not under anchor.
-    // Once the marker is first detected we copy the anchor's world transform
-    // here and stop updating it when tracking is lost, so the content stays
-    // visible and explorable even when the camera looks away from the marker.
+    // World-anchored group — lives directly in scene (not under the marker
+    // anchor). When the marker is first scanned we place this group at a fixed
+    // spot in front of the user; from then on the gyroscope drives the camera
+    // so the content stays put in world space as the user looks around.
     const worldGroup = new THREE.Group();
-    worldGroup.matrixAutoUpdate = false;
     worldGroup.visible = false;
     scene.add(worldGroup);
-    let worldLocked = false;
+    let worldLocked   = false;
+    let gyroDriven    = false;  // true = phone gyro controls camera; false = static desktop fallback
+    let firstSeenTime = null;   // elapsed time when the marker was first detected
+
+    // How far in front of the user the content spawns (world units ≈ metres).
+    const SPAWN_DISTANCE = 2.2;
 
     // 4a. Glowing ring at the base (flat on marker)
     const ringGeo = new THREE.TorusGeometry(0.75, 0.025, 8, 64);
@@ -667,48 +728,82 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
+    const _spawnQuat = new THREE.Quaternion();
+    const _camFwd    = new THREE.Vector3();
+
+    // Places worldGroup SPAWN_DISTANCE in front of `forward`, standing upright
+    // and facing back toward the user, then freezes it in world space.
+    function spawnContent(forward, driven) {
+      _camFwd.copy(forward);
+      _camFwd.y = 0;
+      if (_camFwd.lengthSq() < 1e-4) _camFwd.set(0, 0, -1);
+      _camFwd.normalize();
+
+      // Camera sits at the origin, so the group's world position is simply
+      // the forward direction scaled by the spawn distance (dropped slightly
+      // below eye level so the cabinet reads as standing on the floor).
+      worldGroup.position.set(_camFwd.x * SPAWN_DISTANCE, -0.3, _camFwd.z * SPAWN_DISTANCE);
+
+      // Upright orientation: group local Z = world up (cabinet's tall axis
+      // stands vertical), group local Y = back toward the user.
+      const zAxis = new THREE.Vector3(0, 1, 0);
+      const yAxis = _camFwd.clone().negate();
+      const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
+      worldGroup.quaternion.setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis)
+      );
+
+      worldGroup.visible = true;
+      worldLocked = true;
+      gyroDriven  = driven;
+    }
+
     // 7. Render loop
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // While tracking: sync worldGroup to the marker's current world transform.
-      // When tracking is lost: matrix stays frozen at last known position —
-      // the user can freely look around the content.
-      if (markerFound) {
-        anchor.group.updateWorldMatrix(true, false);
-        worldGroup.matrix.copy(anchor.group.matrixWorld);
-        if (!worldLocked) {
-          worldGroup.visible = true;
-          worldLocked = true;
+      // ── Spawn once, after the marker is first scanned ──
+      if (markerFound && !worldLocked) {
+        if (firstSeenTime === null) firstSeenTime = t;
+
+        if (gyroReady) {
+          // Phone: spawn in the direction the user is currently facing.
+          gyroToQuaternion(_spawnQuat, gyro);
+          spawnContent(new THREE.Vector3(0, 0, -1).applyQuaternion(_spawnQuat), true);
+        } else if (t - firstSeenTime > 1.0) {
+          // Desktop fallback (no gyroscope): spawn straight ahead, static view.
+          spawnContent(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), false);
         }
+      }
+
+      // ── After lock: gyroscope drives the camera so the user looks around ──
+      if (worldLocked && gyroDriven && gyroReady) {
+        gyroToQuaternion(camera.quaternion, gyro);
       }
 
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
       ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
 
-      if (cabinetModel) {
+      if (cabinetModel && worldLocked) {
         // Gentle hover
         cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.03;
 
-        // Smoothly rotate cabinet to face the camera (around Z axis only).
-        // Works whether or not the marker is currently visible because
-        // worldGroup.matrix is always the last known world transform.
-        if (worldLocked) {
-          try {
-            const camWorld = new THREE.Vector3();
-            camera.getWorldPosition(camWorld);
-            const invMatrix = worldGroup.matrix.clone().invert();
-            const camLocal = camWorld.clone().applyMatrix4(invMatrix);
-            const targetAngle = Math.atan2(camLocal.y, camLocal.x) + Math.PI / 2;
-            if (!isNaN(targetAngle)) {
-              let delta = targetAngle - cabinetModel.rotation.z;
-              while (delta > Math.PI) delta -= Math.PI * 2;
-              while (delta < -Math.PI) delta += Math.PI * 2;
-              cabinetModel.rotation.z += delta * 0.015;
-            }
-          } catch(e) {}
-        }
+        // Aim the cabinet's screen at the user (spin around its vertical axis).
+        try {
+          const camWorld = new THREE.Vector3();
+          camera.getWorldPosition(camWorld);
+          worldGroup.updateWorldMatrix(true, false);
+          const invMatrix = worldGroup.matrixWorld.clone().invert();
+          const camLocal  = camWorld.clone().applyMatrix4(invMatrix);
+          const targetAngle = Math.atan2(camLocal.y, camLocal.x);
+          if (!isNaN(targetAngle)) {
+            let delta = targetAngle - cabinetModel.rotation.z;
+            while (delta >  Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            cabinetModel.rotation.z += delta * 0.12;
+          }
+        } catch(e) {}
       }
 
       renderer.render(scene, camera);
@@ -722,6 +817,9 @@
       mindarThree.renderer.setAnimationLoop(null);
       mindarThree = null;
     }
+    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+    gyro           = null;
+    gyroReady      = false;
     markerFound    = false;
     cabinetModel   = null;
     arContainer.innerHTML     = '';
