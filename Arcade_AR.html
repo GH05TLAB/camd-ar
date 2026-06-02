@@ -594,6 +594,16 @@
     // 3. Anchor to marker index 0
     const anchor = mindarThree.addAnchor(0);
 
+    // World-locked group — lives directly in scene, not under anchor.
+    // Once the marker is first detected we copy the anchor's world transform
+    // here and stop updating it when tracking is lost, so the content stays
+    // visible and explorable even when the camera looks away from the marker.
+    const worldGroup = new THREE.Group();
+    worldGroup.matrixAutoUpdate = false;
+    worldGroup.visible = false;
+    scene.add(worldGroup);
+    let worldLocked = false;
+
     // 4a. Glowing ring at the base (flat on marker)
     const ringGeo = new THREE.TorusGeometry(0.75, 0.025, 8, 64);
     const ringMat = new THREE.MeshStandardMaterial({
@@ -602,12 +612,12 @@
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.set(0, 0, 0.02);
-    anchor.group.add(ring);
+    worldGroup.add(ring);
 
     // 4b. Load and add the arcade cabinet
     try {
       cabinetModel = await loadArcadeCabinet();
-      anchor.group.add(cabinetModel);
+      worldGroup.add(cabinetModel);
     } catch (err) {
       console.error('Failed to load Arcade Cabinet:', err);
       alert('Could not load the 3D model. Check that Arcade_Cabinet files are present.');
@@ -615,19 +625,14 @@
       return;
     }
 
-    // 5. Marker callbacks — sticky tracking (3s grace period before despawn)
+    // 5. Marker callbacks
     let videoDelayTimer = null;
-    let despawnTimer = null;
-    let keepVisible = false;
 
     anchor.onTargetFound = () => {
       markerFound = true;
-      keepVisible = true;
-      // Cancel any pending despawn
-      if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
       scanHint.classList.add('hidden');
       scanRings.classList.add('hidden');
-      // Start video 1 second after arcade appears
+      // Start video 1 second after arcade appears (only on first detection)
       if (videoElement && !videoPlaying) {
         videoDelayTimer = setTimeout(() => {
           videoElement.play().then(() => {
@@ -646,19 +651,7 @@
     };
     anchor.onTargetLost = () => {
       markerFound = false;
-      // Keep content visible for 3 seconds before despawning
-      if (despawnTimer) clearTimeout(despawnTimer);
-      despawnTimer = setTimeout(() => {
-        keepVisible = false;
-        scanHint.classList.remove('hidden');
-        scanRings.classList.remove('hidden');
-        if (videoDelayTimer) { clearTimeout(videoDelayTimer); videoDelayTimer = null; }
-        if (videoElement && videoPlaying) {
-          videoElement.pause();
-          videoPlaying = false;
-          playPauseBtn.textContent = '▶';
-        }
-      }, 3000);
+      // Content stays visible — world-locked in place, no despawn
     };
 
     // 6. Start Mind AR
@@ -674,12 +667,21 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
-    // 7. Render loop — gentle idle rotation
+    // 7. Render loop
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Keep content visible during grace period
-      if (keepVisible) anchor.group.visible = true;
+      // While tracking: sync worldGroup to the marker's current world transform.
+      // When tracking is lost: matrix stays frozen at last known position —
+      // the user can freely look around the content.
+      if (markerFound) {
+        anchor.group.updateWorldMatrix(true, false);
+        worldGroup.matrix.copy(anchor.group.matrixWorld);
+        if (!worldLocked) {
+          worldGroup.visible = true;
+          worldLocked = true;
+        }
+      }
 
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
@@ -689,13 +691,14 @@
         // Gentle hover
         cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.03;
 
-        // Smoothly rotate cabinet to face the camera (around Z axis only)
-        if (markerFound) {
+        // Smoothly rotate cabinet to face the camera (around Z axis only).
+        // Works whether or not the marker is currently visible because
+        // worldGroup.matrix is always the last known world transform.
+        if (worldLocked) {
           try {
             const camWorld = new THREE.Vector3();
             camera.getWorldPosition(camWorld);
-            anchor.group.updateWorldMatrix(true, false);
-            const invMatrix = anchor.group.matrixWorld.clone().invert();
+            const invMatrix = worldGroup.matrix.clone().invert();
             const camLocal = camWorld.clone().applyMatrix4(invMatrix);
             const targetAngle = Math.atan2(camLocal.y, camLocal.x) + Math.PI / 2;
             if (!isNaN(targetAngle)) {
