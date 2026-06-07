@@ -506,7 +506,7 @@
         // camera (screen toward Z), so apply NO X rotation — the FBX is
         // already Y-up which maps directly to anchor Y = vertical.
         // We only rotate 180° around Y so the screen faces INTO the room (+Z).
-        const rot = new THREE.Euler(0, Math.PI, 0, 'XYZ');
+        const rot = new THREE.Euler(0, 0, 0, 'XYZ');
         cabinetFbx.rotation.copy(rot);
         if (screenFbx) screenFbx.rotation.copy(rot);
 
