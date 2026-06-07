@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CAMD AR — Compile Markers</title>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a1a; color: #fff; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; gap: 2rem; }
+    h1 { font-size: 1.4rem; letter-spacing: 0.1em; color: #c8102e; }
+    .markers { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+    .marker-card { background: #2a2a2a; border: 1px solid #444; padding: 1rem; border-radius: 4px; text-align: center; width: 200px; }
+    .marker-card img { width: 100%; height: 140px; object-fit: cover; border-radius: 2px; }
+    .marker-card p { margin-top: 0.6rem; font-size: 0.75rem; color: #aaa; }
+    .marker-card strong { color: #fff; display: block; margin-top: 0.3rem; font-size: 0.85rem; }
+    #compile-btn { background: #c8102e; color: #fff; border: none; padding: 1rem 3rem; font-size: 1rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
+    #compile-btn:disabled { background: #555; cursor: not-allowed; }
+    #status { font-size: 0.85rem; color: #aaa; text-align: center; min-height: 1.5rem; }
+    .progress-wrap { width: 300px; height: 4px; background: #333; border-radius: 2px; overflow: hidden; display: none; }
+    #progress-bar { height: 100%; background: #c8102e; width: 0%; transition: width 0.2s; }
+    .done { color: #44ff88 !important; }
+    .instructions { background: #222; border: 1px solid #444; padding: 1.2rem 1.6rem; border-radius: 4px; max-width: 500px; font-size: 0.8rem; line-height: 1.9; color: #ccc; display: none; }
+    .instructions b { color: #fff; }
+  </style>
+</head>
+<body>
+  <h1>CAMD AR — Marker Compiler</h1>
+  <p style="color:#888;font-size:0.8rem;text-align:center">Compiles the 3 campus spot markers into a single targets.mind file</p>
+
+  <div class="markers">
+    <div class="marker-card">
+      <img src="./marker_1_concert.jpg" crossorigin="anonymous" />
+      <strong>Spot 1</strong>
+      <p>Concert Hall</p>
+    </div>
+    <div class="marker-card">
+      <img src="./marker_2_caspar.jpg" crossorigin="anonymous" />
+      <strong>Spot 2</strong>
+      <p>Caspar</p>
+    </div>
+    <div class="marker-card">
+      <img src="./marker_3_art.jpg" crossorigin="anonymous" />
+      <strong>Spot 3</strong>
+      <p>3D Art</p>
+    </div>
+  </div>
+
+  <button id="compile-btn" onclick="compile()">Compile &amp; Download targets.mind</button>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div id="progress-bar"></div>
+  </div>
+  <div id="status">Ready — click the button to compile all 3 markers.</div>
+
+  <div class="instructions" id="instructions">
+    <b>Next steps:</b><br>
+    1. Move the downloaded <b>targets.mind</b> into this project folder<br>
+    &nbsp;&nbsp;&nbsp;(replace the existing one)<br>
+    2. Print <b>marker_1_concert.jpg</b> → put it at Spot 1<br>
+    3. Print <b>marker_2_caspar.jpg</b> → put it at Spot 2<br>
+    4. Print <b>marker_3_art.jpg</b> → put it at Spot 3<br>
+    5. Open <b>Arcade_AR.html</b> and scan any of the 3 markers
+  </div>
+
+  <script>
+  async function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload  = () => resolve(img);
+      img.onerror = () => reject(new Error('Failed to load: ' + src));
+      img.src = src;
+    });
+  }
+
+  async function compile() {
+    const btn    = document.getElementById('compile-btn');
+    const status = document.getElementById('status');
+    const bar    = document.getElementById('progress-bar');
+    const wrap   = document.getElementById('progress-wrap');
+
+    btn.disabled = true;
+    wrap.style.display = 'block';
+    status.textContent = 'Loading marker images…';
+    status.className = '';
+
+    try {
+      const [img1, img2, img3] = await Promise.all([
+        loadImage('./marker_1_concert.jpg'),
+        loadImage('./marker_2_caspar.jpg'),
+        loadImage('./marker_3_art.jpg'),
+      ]);
+
+      status.textContent = 'Compiling markers (this takes ~30 seconds)…';
+
+      const compiler = new MINDAR.IMAGE.Compiler();
+      await compiler.compileImageTargets([img1, img2, img3], (progress) => {
+        const pct = Math.round(progress * 100);
+        bar.style.width = pct + '%';
+        status.textContent = `Compiling… ${pct}%`;
+      });
+
+      status.textContent = 'Exporting…';
+      const buffer = await compiler.exportData();
+
+      const blob = new Blob([buffer]);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'targets.mind';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      status.textContent = '✓ Done! targets.mind downloaded. See instructions below.';
+      status.className = 'done';
+      document.getElementById('instructions').style.display = 'block';
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+      btn.disabled = false;
+    }
+  }
+  </script>
+</body>
+</html>

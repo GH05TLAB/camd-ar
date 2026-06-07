@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>CAMD AR — Campus Experience</title>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --red: #c8102e; --black: #1a1a1a; --white: #ffffff; }
+    body { background: var(--black); font-family: 'Georgia', serif; color: var(--white); overflow: hidden; height: 100dvh; width: 100dvw; }
+    #ar-container { position: fixed; inset: 0; display: none; }
+
+    /* Splash */
+    #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--black); gap: 2rem; padding: 2rem; z-index: 100; }
+    .splash-logo { width: 80px; height: 80px; background: var(--black); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; padding: 6px; outline: 3px solid var(--white); }
+    .splash-logo span { display: flex; align-items: center; justify-content: center; background: var(--black); color: var(--white); font-size: 1.6rem; font-weight: 700; font-family: 'Georgia', serif; }
+    .splash-title h1 { font-size: clamp(1.4rem,5vw,2rem); font-weight: 400; letter-spacing: 0.05em; text-align: center; }
+    .splash-title p { font-size: 0.85rem; opacity: 0.55; margin-top: 0.4rem; font-family: 'Courier New', monospace; letter-spacing: 0.08em; text-transform: uppercase; text-align: center; }
+    .splash-spots { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; max-width: 340px; }
+    .spot-chip { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; padding: 0.5rem 0.8rem; font-family: 'Courier New', monospace; font-size: 0.72rem; text-align: center; }
+    .spot-chip strong { color: var(--red); display: block; font-size: 0.8rem; margin-bottom: 2px; }
+    #start-btn { background: var(--red); color: var(--white); border: none; padding: 1rem 3rem; font-size: 1rem; font-family: 'Georgia', serif; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: background 0.2s, transform 0.1s; }
+    #start-btn:hover { background: #a50d26; }
+    #start-btn:active { transform: scale(0.97); }
+
+    /* AR UI overlay */
+    #ar-ui { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
+    #ar-header { position: absolute; top: 0; left: 0; right: 0; padding: 1rem 1.2rem; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
+    #ar-label { font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; font-family: 'Courier New', monospace; opacity: 0.8; }
+    #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
+    #mute-btn, #play-pause-btn { pointer-events: all; position: absolute; bottom: 5rem; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3); color: white; width: 44px; height: 44px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 50%; z-index: 60; }
+    #mute-btn { right: 1.2rem; }
+    #play-pause-btn { right: 4rem; }
+    #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
+    #scan-hint.hidden { opacity: 0; }
+    .scan-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; animation: pulse-ring 2s ease-out infinite; }
+    .scan-ring:nth-child(2) { animation-delay: 0.7s; }
+    .scan-ring:nth-child(3) { animation-delay: 1.4s; }
+    @keyframes pulse-ring { 0% { transform: translate(-50%,-50%) scale(0.6); opacity: 0.6; } 100% { transform: translate(-50%,-50%) scale(1.8); opacity: 0; } }
+    #scan-rings { transition: opacity 0.4s; }
+    #scan-rings.hidden { opacity: 0; pointer-events: none; }
+
+    /* Loading overlay */
+    #loading-overlay { position: fixed; inset: 0; background: var(--black); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; z-index: 200; }
+    #loading-overlay.hidden { display: none; }
+    .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+    .loader-fill { height: 100%; background: var(--red); animation: loader 1.8s ease-in-out infinite; }
+    @keyframes loader { 0% { width:0%;margin-left:0%; } 50% { width:60%;margin-left:20%; } 100% { width:0%;margin-left:100%; } }
+    .loader-text { font-size: 0.72rem; font-family: 'Courier New', monospace; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.5; }
+
+    /* Active spot label */
+    #spot-label { position: absolute; top: 4.5rem; left: 50%; transform: translateX(-50%); background: rgba(200,16,46,0.85); color: #fff; font-family: 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 2px; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
+    #spot-label.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <div id="loading-overlay" class="hidden">
+    <div class="splash-logo" style="width:60px;height:60px;"><span style="font-size:1.2rem">C</span><span style="font-size:1.2rem">A</span><span style="font-size:1.2rem">M</span><span style="font-size:1.2rem">D</span></div>
+    <div class="loader-bar"><div class="loader-fill"></div></div>
+    <div class="loader-text">Initialising AR engine…</div>
+  </div>
+
+  <div id="splash">
+    <div class="splash-logo"><span>C</span><span>A</span><span>M</span><span>D</span></div>
+    <div class="splash-title">
+      <h1>CAMD Campus AR</h1>
+      <p>Northeastern University · 3 Spots</p>
+    </div>
+    <div class="splash-spots">
+      <div class="spot-chip"><strong>Spot 1</strong>Concert Hall</div>
+      <div class="spot-chip"><strong>Spot 2</strong>Caspar</div>
+      <div class="spot-chip"><strong>Spot 3</strong>3D Art</div>
+    </div>
+    <div style="font-family:'Courier New',monospace;font-size:0.78rem;color:rgba(255,255,255,0.5);text-align:center;max-width:300px;line-height:1.7">
+      Find any of the 3 campus markers,<br>tap Start AR and point your camera at it.
+    </div>
+    <button id="start-btn">Start AR</button>
+  </div>
+
+  <div id="ar-container"></div>
+
+  <div id="ar-ui">
+    <div id="ar-header">
+      <img src="./nu_logo.png" alt="NU" style="width:36px;height:36px;object-fit:contain;">
+      <span id="ar-label">Campus AR</span>
+      <button id="stop-btn">✕ Exit</button>
+    </div>
+    <div id="spot-label"></div>
+    <button id="play-pause-btn">⏸</button>
+    <button id="mute-btn">🔊</button>
+    <div id="scan-rings"><div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div></div>
+    <div id="scan-hint">Point camera at any CAMD marker</div>
+  </div>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { MindARThree } from 'mindar-image-three';
+
+  const MARKER_FILE = './targets.mind';
+
+  let mindarThree = null, clock = null;
+
+  const splash       = document.getElementById('splash');
+  const arContainer  = document.getElementById('ar-container');
+  const arUI         = document.getElementById('ar-ui');
+  const loadingOverlay = document.getElementById('loading-overlay');
+  const startBtn     = document.getElementById('start-btn');
+  const stopBtn      = document.getElementById('stop-btn');
+  const scanHint     = document.getElementById('scan-hint');
+  const scanRings    = document.getElementById('scan-rings');
+  const spotLabel    = document.getElementById('spot-label');
+  const muteBtn      = document.getElementById('mute-btn');
+  const playPauseBtn = document.getElementById('play-pause-btn');
+
+  startBtn.addEventListener('click', startAR);
+  stopBtn.addEventListener('click',  stopAR);
+
+  // ── Video (used by Spot 2 — Caspar display) ─────────────────
+  const VIDEO_URL = './game_footage.mp4';
+  let videoElement = null, videoTexture = null, videoPlaying = false;
+
+  muteBtn.addEventListener('click', () => {
+    if (!videoElement) return;
+    videoElement.muted = !videoElement.muted;
+    muteBtn.textContent = videoElement.muted ? '🔇' : '🔊';
+  });
+  playPauseBtn.addEventListener('click', () => {
+    if (!videoElement) return;
+    if (videoPlaying) { videoElement.pause(); playPauseBtn.textContent = '▶'; }
+    else              { videoElement.play();  playPauseBtn.textContent = '⏸'; }
+    videoPlaying = !videoPlaying;
+  });
+
+  function createVideoTexture() {
+    videoElement = document.createElement('video');
+    videoElement.src = VIDEO_URL;
+    videoElement.loop = videoElement.muted = videoElement.playsInline = true;
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.pause();
+    videoTexture = new THREE.VideoTexture(videoElement);
+    videoTexture.minFilter = videoTexture.magFilter = THREE.LinearFilter;
+    return videoTexture;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //  CONTENT BUILDERS — one per spot
+  // ══════════════════════════════════════════════════════════════
+
+  // ── Spot 0 · Concert Hall ────────────────────────────────────
+  function buildConcertHall(anchor) {
+    const g = new THREE.Group();
+
+    const mat = (hex, emit = 0, ei = 0) => new THREE.MeshStandardMaterial({
+      color: hex, emissive: emit, emissiveIntensity: ei, metalness: 0.3, roughness: 0.6
+    });
+
+    // Floor
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.04, 1.6), mat(0x5c3a1e));
+    floor.position.set(0, -0.02, 0.3);
+    g.add(floor);
+
+    // Back wall
+    const bwall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 0.04), mat(0xd4b483));
+    bwall.position.set(0, 0.8, -0.5);
+    g.add(bwall);
+
+    // Side walls
+    [-1.2, 1.2].forEach(x => {
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.6, 1.0), mat(0xd4b483));
+      sw.position.set(x, 0.8, 0);
+      g.add(sw);
+    });
+
+    // Stage platform
+    const stage = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.45), mat(0x333333));
+    stage.position.set(0, 0.06, -0.3);
+    g.add(stage);
+
+    // Curtains
+    const curtainMat = mat(0x8b0000);
+    [-0.55, 0.55].forEach(x => {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.1, 0.04), curtainMat);
+      c.position.set(x, 0.55, -0.48);
+      g.add(c);
+    });
+
+    // Lighting rig bar
+    const rig = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.0, 8), mat(0x888888));
+    rig.rotation.z = Math.PI / 2;
+    rig.position.set(0, 1.4, -0.1);
+    g.add(rig);
+
+    // Spotlights on rig
+    const lightColors = [0xff4422, 0x2244ff, 0xffee22, 0x22ff88];
+    lightColors.forEach((c, i) => {
+      const lx = -0.6 + i * 0.4;
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.055, 0.13, 8), mat(0x444444));
+      body.position.set(lx, 1.33, -0.1);
+      g.add(body);
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 16), new THREE.MeshStandardMaterial({
+        color: c, emissive: c, emissiveIntensity: 1.2, side: THREE.DoubleSide
+      }));
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(lx, 1.26, -0.1);
+      g.add(lens);
+    });
+
+    // Audience seats (grid)
+    const seatMat = mat(0xc8102e);
+    for (let row = 0; row < 4; row++) {
+      for (let col = -5; col <= 5; col++) {
+        const s = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.09), seatMat);
+        s.position.set(col * 0.18, 0.05 + row * 0.03, 0.1 + row * 0.18);
+        g.add(s);
+      }
+    }
+
+    anchor.group.add(g);
+    g.userData.type = 'concert';
+    return g;
+  }
+
+  // ── Spot 1 · Caspar Display ──────────────────────────────────
+  function buildCasparDisplay(anchor) {
+    const g = new THREE.Group();
+
+    // Decorative frame
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c1810, metalness: 0.5, roughness: 0.4 });
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.55, 0.04), frameMat);
+    g.add(frame);
+
+    // Inner photo
+    const tex = new THREE.TextureLoader().load('./marker_2_caspar.jpg');
+    const photo = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.0, 1.38),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
+    );
+    photo.position.z = 0.025;
+    g.add(photo);
+
+    // Gold inner border strips
+    const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.3, metalness: 0.9, roughness: 0.1 });
+    [[1.1, 0.03, 0, 0.76, 0.02], [1.1, 0.03, 0, -0.76, 0.02],
+     [0.03, 1.5, -0.54, 0, 0.02], [0.03, 1.5, 0.54, 0, 0.02]].forEach(([w, h, x, y, z]) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.01), goldMat);
+      strip.position.set(x, y, z);
+      g.add(strip);
+    });
+
+    // Name plate
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 80;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#2c1810';
+    ctx.fillRect(0, 0, 512, 80);
+    ctx.fillStyle = '#d4af37';
+    ctx.font = 'bold 34px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CASPAR', 256, 40);
+    const plateTex = new THREE.CanvasTexture(canvas);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.1), new THREE.MeshBasicMaterial({ map: plateTex, side: THREE.DoubleSide }));
+    plate.position.set(0, -0.84, 0.03);
+    g.add(plate);
+
+    anchor.group.add(g);
+    g.userData.type = 'caspar';
+    return g;
+  }
+
+  // ── Spot 2 · 3D Geometric Art ────────────────────────────────
+  function build3DArt(anchor) {
+    const g = new THREE.Group();
+
+    // Central torus knot
+    const knot = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.28, 0.08, 120, 18),
+      new THREE.MeshStandardMaterial({ color: 0xc8102e, emissive: 0x500010, emissiveIntensity: 0.5, metalness: 0.8, roughness: 0.15 })
+    );
+    knot.userData.isKnot = true;
+    g.add(knot);
+
+    // Orbiting spheres
+    const orbitColors = [0x4488ff, 0x44ffaa, 0xffaa22, 0xff44cc];
+    orbitColors.forEach((c, i) => {
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.07, 20, 20),
+        new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.6, metalness: 0.6, roughness: 0.2 })
+      );
+      sphere.userData = { orbitR: 0.65, orbitSpeed: 0.7 + i * 0.15, initAngle: (i / 4) * Math.PI * 2, orbitTilt: i * 0.3 };
+      g.userData['sphere' + i] = sphere;
+      g.add(sphere);
+    });
+
+    // Outer decorative ring
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.75, 0.015, 8, 80),
+      new THREE.MeshStandardMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.4, metalness: 0.9, roughness: 0.1 })
+    );
+    ring.userData.isOuterRing = true;
+    g.add(ring);
+
+    // Base pedestal
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.2, 0.08, 16),
+      new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.3 })
+    );
+    pedestal.position.y = -0.5;
+    g.add(pedestal);
+
+    anchor.group.add(g);
+    g.userData.type = 'art';
+    return g;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //  AR START / STOP
+  // ══════════════════════════════════════════════════════════════
+
+  async function startAR() {
+    splash.style.display = 'none';
+    loadingOverlay.classList.remove('hidden');
+    arContainer.style.display = 'block';
+    arUI.style.display = 'block';
+
+    mindarThree = new MindARThree({
+      container:      arContainer,
+      imageTargetSrc: MARKER_FILE,
+      maxTrack:       3,
+      uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+      filterMinCF: 0.0001, filterBeta: 10,
+    });
+
+    const { renderer, scene, camera } = mindarThree;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(2, 4, 3);
+    scene.add(dir);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.2);
+    fill.position.set(-2, 1, -2);
+    scene.add(fill);
+
+    // 3 anchors — indices match the order images were compiled in compile.html:
+    //   0 = marker_1_concert   1 = marker_2_caspar   2 = marker_3_art
+    const anchors  = [0, 1, 2].map(i => mindarThree.addAnchor(i));
+    const contents = [
+      buildConcertHall(anchors[0]),
+      buildCasparDisplay(anchors[1]),
+      build3DArt(anchors[2]),
+    ];
+    const spotNames = ['Concert Hall', 'Caspar', '3D Art'];
+
+    let despawnTimers = [null, null, null];
+    let videoTimer    = null;
+
+    anchors.forEach((anchor, idx) => {
+      anchor.onTargetFound = () => {
+        if (despawnTimers[idx]) { clearTimeout(despawnTimers[idx]); despawnTimers[idx] = null; }
+        anchor.group.visible = true;
+        scanHint.classList.add('hidden');
+        scanRings.classList.add('hidden');
+        spotLabel.textContent = '📍 ' + spotNames[idx];
+        spotLabel.classList.add('visible');
+
+        // Video for Caspar spot
+        if (idx === 1 && videoElement && !videoPlaying) {
+          videoTimer = setTimeout(() => {
+            videoElement.play().catch(() => { videoElement.muted = true; videoElement.play(); });
+            videoPlaying = true;
+            playPauseBtn.textContent = '⏸';
+            muteBtn.textContent = '🔇';
+          }, 800);
+        }
+      };
+      anchor.onTargetLost = () => {
+        if (despawnTimers[idx]) clearTimeout(despawnTimers[idx]);
+        despawnTimers[idx] = setTimeout(() => {
+          anchor.group.visible = false;
+          spotLabel.classList.remove('visible');
+          scanHint.classList.remove('hidden');
+          scanRings.classList.remove('hidden');
+          if (idx === 1 && videoElement && videoPlaying) {
+            if (videoTimer) { clearTimeout(videoTimer); videoTimer = null; }
+            videoElement.pause(); videoPlaying = false; playPauseBtn.textContent = '▶';
+          }
+        }, 3000);
+      };
+    });
+
+    try {
+      await mindarThree.start();
+    } catch (err) {
+      alert('Could not start AR. Make sure you are on HTTPS and camera access is granted.');
+      stopAR(); return;
+    }
+
+    loadingOverlay.classList.add('hidden');
+    clock = new THREE.Clock();
+
+    renderer.setAnimationLoop(() => {
+      const t = clock.getElapsedTime();
+
+      // Animate concert hall spotlights (pulsing emissive)
+      const ch = contents[0];
+      ch.traverse(child => {
+        if (child.material && child.material.emissiveIntensity > 0.9) {
+          child.material.emissiveIntensity = 1.0 + Math.sin(t * 2 + child.id * 0.5) * 0.4;
+        }
+      });
+
+      // Animate 3D art: rotate knot, orbit spheres, spin outer ring
+      const art = contents[2];
+      art.children.forEach(child => {
+        if (child.userData.isKnot)      child.rotation.y = t * 0.5;
+        if (child.userData.isOuterRing) { child.rotation.x = t * 0.3; child.rotation.z = t * 0.2; }
+        if (child.userData.orbitR) {
+          const a = child.userData.initAngle + t * child.userData.orbitSpeed;
+          child.position.set(
+            Math.cos(a) * child.userData.orbitR,
+            Math.sin(t * 0.4 + child.userData.orbitTilt) * 0.25,
+            Math.sin(a) * child.userData.orbitR
+          );
+        }
+      });
+
+      renderer.render(scene, camera);
+    });
+  }
+
+  async function stopAR() {
+    if (mindarThree) {
+      try { await mindarThree.stop(); } catch(e) {}
+      mindarThree.renderer.setAnimationLoop(null);
+      mindarThree = null;
+    }
+    if (videoElement) { videoElement.pause(); videoPlaying = false; }
+    arContainer.innerHTML = '';
+    arContainer.style.display = 'none';
+    arUI.style.display = 'none';
+    loadingOverlay.classList.add('hidden');
+    scanHint.classList.remove('hidden');
+    scanRings.classList.remove('hidden');
+    spotLabel.classList.remove('visible');
+    splash.style.display = 'flex';
+  }
+  </script>
+</body>
+</html>
