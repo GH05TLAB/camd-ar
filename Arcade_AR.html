@@ -498,25 +498,19 @@
         rawBox.getSize(rawSize);
         console.log('FBX raw size:', rawSize.x.toFixed(2), rawSize.y.toFixed(2), rawSize.z.toFixed(2));
 
-        // Rotate tallest axis to Z (toward camera)
-        const dims = [
-          { axis: 'x', val: rawSize.x },
-          { axis: 'y', val: rawSize.y },
-          { axis: 'z', val: rawSize.z },
-        ];
-        dims.sort((a, b) => b.val - a.val);
-        const tallest = dims[0].axis;
-
-        // Apply same rotation to both models + slight backward tilt (~5 degrees)
-        const tilt = 5 * (Math.PI / 180);
-        const rot = new THREE.Euler();
-        if (tallest === 'y') { rot.x = Math.PI / 2 - tilt; }
-        else if (tallest === 'x') { rot.y = Math.PI / 2; rot.x = -tilt; }
-
+        // For a wall-mounted marker the anchor axes are:
+        //   Z = into the room (toward camera, perpendicular to wall)
+        //   Y = up (vertical along wall)
+        //   X = right (horizontal along wall)
+        // We want the cabinet to stand upright (tall axis = Y) and face the
+        // camera (screen toward Z), so apply NO X rotation — the FBX is
+        // already Y-up which maps directly to anchor Y = vertical.
+        // We only rotate 180° around Y so the screen faces INTO the room (+Z).
+        const rot = new THREE.Euler(0, Math.PI, 0, 'XYZ');
         cabinetFbx.rotation.copy(rot);
         if (screenFbx) screenFbx.rotation.copy(rot);
 
-        // Scale to fit marker
+        // Scale to fit marker (target height ~1.5 anchor units)
         const box = new THREE.Box3().setFromObject(pivot);
         const size = new THREE.Vector3();
         box.getSize(size);
@@ -524,13 +518,13 @@
         const scale = 1.5 / maxDim;
         pivot.scale.setScalar(scale);
 
-        // Center on XY, float above marker
+        // Center horizontally (X), align bottom to marker (Y), float off wall (Z)
         const scaledBox = new THREE.Box3().setFromObject(pivot);
         const center = new THREE.Vector3();
         scaledBox.getCenter(center);
         pivot.position.x = -center.x;
-        pivot.position.y = -center.y;
-        pivot.position.z = -scaledBox.min.z + 0.15;
+        pivot.position.y = -scaledBox.min.y;   // sit bottom edge at marker centre
+        pivot.position.z = 0.05;               // float slightly off the wall
         pivot.userData.baseZ = pivot.position.z;
 
         resolve(pivot);
@@ -558,69 +552,12 @@
     });
   }
 
-  // ── Device orientation (gyroscope) → camera rotation ─────────
-  // Enables 3DoF look-around. After the marker is scanned the camera rotation
-  // is driven by the phone's gyroscope, so content placed in world space stays
-  // fixed as the user turns to look around the room (works on iOS + Android).
-  let gyro      = null;   // latest { alpha, beta, gamma } in degrees
-  let gyroReady = false;
-
-  const _zee   = new THREE.Vector3(0, 0, 1);
-  const _q0    = new THREE.Quaternion();
-  const _q1    = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -90° about X: camera looks out the back of the device
-  const _euler = new THREE.Euler();
-
-  function screenAngleRad() {
-    const deg = (screen.orientation && screen.orientation.angle != null)
-      ? screen.orientation.angle
-      : (window.orientation || 0);
-    return THREE.MathUtils.degToRad(deg);
-  }
-
-  // Convert deviceorientation Euler angles into a Three.js camera quaternion.
-  function gyroToQuaternion(out, g) {
-    const alpha = THREE.MathUtils.degToRad(g.alpha || 0); // Z
-    const beta  = THREE.MathUtils.degToRad(g.beta  || 0); // X
-    const gamma = THREE.MathUtils.degToRad(g.gamma || 0); // Y
-    _euler.set(beta, alpha, -gamma, 'YXZ');
-    out.setFromEuler(_euler);
-    out.multiply(_q1);
-    out.multiply(_q0.setFromAxisAngle(_zee, -screenAngleRad()));
-    return out;
-  }
-
-  function onDeviceOrientation(e) {
-    if (e.alpha == null && e.beta == null && e.gamma == null) return;
-    gyro = { alpha: e.alpha, beta: e.beta, gamma: e.gamma };
-    gyroReady = true;
-  }
-
-  // Must be triggered by a user gesture (the Start button) for iOS 13+.
-  async function enableGyroscope() {
-    try {
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        const res = await DeviceOrientationEvent.requestPermission();
-        if (res !== 'granted') {
-          alert('Motion sensor access is needed to look around. Content will still appear in front of you.');
-        }
-      }
-    } catch (err) {
-      console.warn('Gyroscope permission error:', err);
-    }
-    // Attach regardless — on desktop (no sensor) we fall back to a static view.
-    window.addEventListener('deviceorientation', onDeviceOrientation, true);
-  }
-
   // ── LAUNCH ───────────────────────────────────────────────────
   async function startAR() {
     splash.style.display        = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display   = 'block';
     arUI.style.display          = 'block';
-
-    // Request motion-sensor access while we still have the Start-button gesture
-    await enableGyroscope();
 
     // 1. Initialise Mind AR + Three.js
     mindarThree = new MindARThree({
@@ -649,36 +586,27 @@
     scene.add(fillLight);
 
     // 3. Anchor to marker index 0
+    // All content lives inside anchor.group — it tracks the marker exactly.
+    // When the marker is on a wall: anchor Z points into the room (toward camera),
+    // anchor Y is vertical (up), anchor X is horizontal (right along wall).
     const anchor = mindarThree.addAnchor(0);
 
-    // World-anchored group — lives directly in scene (not under the marker
-    // anchor). When the marker is first scanned we place this group at a fixed
-    // spot in front of the user; from then on the gyroscope drives the camera
-    // so the content stays put in world space as the user looks around.
-    const worldGroup = new THREE.Group();
-    worldGroup.visible = false;
-    scene.add(worldGroup);
-    let worldLocked   = false;
-    let gyroDriven    = false;  // true = phone gyro controls camera; false = static desktop fallback
-    let firstSeenTime = null;   // elapsed time when the marker was first detected
-
-    // How far in front of the user the content spawns (world units ≈ metres).
-    const SPAWN_DISTANCE = 2.2;
-
-    // 4a. Glowing ring at the base (flat on marker)
-    const ringGeo = new THREE.TorusGeometry(0.75, 0.025, 8, 64);
+    // 4a. Glowing ring — flat against the wall around the marker
+    const ringGeo = new THREE.TorusGeometry(0.55, 0.02, 8, 64);
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0xc8102e, emissive: 0xc8102e,
       emissiveIntensity: 0.8, metalness: 0.4, roughness: 0.3,
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.set(0, 0, 0.02);
-    worldGroup.add(ring);
+    // Lay the ring flat on the marker surface (XY plane of anchor = wall surface)
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(0, 0, 0.01);
+    anchor.group.add(ring);
 
     // 4b. Load and add the arcade cabinet
     try {
       cabinetModel = await loadArcadeCabinet();
-      worldGroup.add(cabinetModel);
+      anchor.group.add(cabinetModel);
     } catch (err) {
       console.error('Failed to load Arcade Cabinet:', err);
       alert('Could not load the 3D model. Check that Arcade_Cabinet files are present.');
@@ -686,14 +614,17 @@
       return;
     }
 
-    // 5. Marker callbacks
+    // 5. Marker callbacks — 3-second grace period before hiding on lost
     let videoDelayTimer = null;
+    let despawnTimer    = null;
 
     anchor.onTargetFound = () => {
       markerFound = true;
+      if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+      anchor.group.visible = true;
       scanHint.classList.add('hidden');
       scanRings.classList.add('hidden');
-      // Start video 1 second after arcade appears (only on first detection)
+      // Start video shortly after the cabinet appears
       if (videoElement && !videoPlaying) {
         videoDelayTimer = setTimeout(() => {
           videoElement.play().then(() => {
@@ -707,12 +638,25 @@
             playPauseBtn.textContent = '⏸';
             muteBtn.textContent = '🔇';
           });
-        }, 1000);
+        }, 800);
       }
     };
+
     anchor.onTargetLost = () => {
       markerFound = false;
-      // Content stays visible — world-locked in place, no despawn
+      // Keep content visible for 3 s to avoid flicker when marker briefly leaves frame
+      if (despawnTimer) clearTimeout(despawnTimer);
+      despawnTimer = setTimeout(() => {
+        anchor.group.visible = false;
+        scanHint.classList.remove('hidden');
+        scanRings.classList.remove('hidden');
+        if (videoDelayTimer) { clearTimeout(videoDelayTimer); videoDelayTimer = null; }
+        if (videoElement && videoPlaying) {
+          videoElement.pause();
+          videoPlaying = false;
+          playPauseBtn.textContent = '▶';
+        }
+      }, 3000);
     };
 
     // 6. Start Mind AR
@@ -728,82 +672,17 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
-    const _spawnQuat = new THREE.Quaternion();
-    const _camFwd    = new THREE.Vector3();
-
-    // Places worldGroup SPAWN_DISTANCE in front of `forward`, standing upright
-    // and facing back toward the user, then freezes it in world space.
-    function spawnContent(forward, driven) {
-      _camFwd.copy(forward);
-      _camFwd.y = 0;
-      if (_camFwd.lengthSq() < 1e-4) _camFwd.set(0, 0, -1);
-      _camFwd.normalize();
-
-      // Camera sits at the origin, so the group's world position is simply
-      // the forward direction scaled by the spawn distance (dropped slightly
-      // below eye level so the cabinet reads as standing on the floor).
-      worldGroup.position.set(_camFwd.x * SPAWN_DISTANCE, -0.3, _camFwd.z * SPAWN_DISTANCE);
-
-      // Upright orientation: group local Z = world up (cabinet's tall axis
-      // stands vertical), group local Y = back toward the user.
-      const zAxis = new THREE.Vector3(0, 1, 0);
-      const yAxis = _camFwd.clone().negate();
-      const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
-      worldGroup.quaternion.setFromRotationMatrix(
-        new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis)
-      );
-
-      worldGroup.visible = true;
-      worldLocked = true;
-      gyroDriven  = driven;
-    }
-
     // 7. Render loop
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
-
-      // ── Spawn once, after the marker is first scanned ──
-      if (markerFound && !worldLocked) {
-        if (firstSeenTime === null) firstSeenTime = t;
-
-        if (gyroReady) {
-          // Phone: spawn in the direction the user is currently facing.
-          gyroToQuaternion(_spawnQuat, gyro);
-          spawnContent(new THREE.Vector3(0, 0, -1).applyQuaternion(_spawnQuat), true);
-        } else if (t - firstSeenTime > 1.0) {
-          // Desktop fallback (no gyroscope): spawn straight ahead, static view.
-          spawnContent(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), false);
-        }
-      }
-
-      // ── After lock: gyroscope drives the camera so the user looks around ──
-      if (worldLocked && gyroDriven && gyroReady) {
-        gyroToQuaternion(camera.quaternion, gyro);
-      }
 
       // Pulse the ring
       ring.scale.setScalar(1 + Math.sin(t * 2.2) * 0.06);
       ringMat.emissiveIntensity = 0.6 + Math.sin(t * 3) * 0.4;
 
-      if (cabinetModel && worldLocked) {
-        // Gentle hover
-        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.03;
-
-        // Aim the cabinet's screen at the user (spin around its vertical axis).
-        try {
-          const camWorld = new THREE.Vector3();
-          camera.getWorldPosition(camWorld);
-          worldGroup.updateWorldMatrix(true, false);
-          const invMatrix = worldGroup.matrixWorld.clone().invert();
-          const camLocal  = camWorld.clone().applyMatrix4(invMatrix);
-          const targetAngle = Math.atan2(camLocal.y, camLocal.x);
-          if (!isNaN(targetAngle)) {
-            let delta = targetAngle - cabinetModel.rotation.z;
-            while (delta >  Math.PI) delta -= Math.PI * 2;
-            while (delta < -Math.PI) delta += Math.PI * 2;
-            cabinetModel.rotation.z += delta * 0.12;
-          }
-        } catch(e) {}
+      if (cabinetModel) {
+        // Gentle hover — moves cabinet slightly in and out from the wall
+        cabinetModel.position.z = cabinetModel.userData.baseZ + Math.sin(t * 1.5) * 0.02;
       }
 
       renderer.render(scene, camera);
@@ -817,9 +696,6 @@
       mindarThree.renderer.setAnimationLoop(null);
       mindarThree = null;
     }
-    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
-    gyro           = null;
-    gyroReady      = false;
     markerFound    = false;
     cabinetModel   = null;
     arContainer.innerHTML     = '';
