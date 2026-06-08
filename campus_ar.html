@@ -108,7 +108,13 @@
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
 
+  // Each spot uses the same CAMD marker (targets.mind, index 0).
+  // Which content to show is determined by the ?spot= URL parameter:
+  //   campus_ar.html?spot=0  →  Concert Hall
+  //   campus_ar.html?spot=1  →  Caspar
+  //   campus_ar.html?spot=2  →  3D Art
   const MARKER_FILE = './targets.mind';
+  const SPOT = parseInt(new URLSearchParams(location.search).get('spot') ?? '0', 10);
 
   let mindarThree = null, clock = null;
 
@@ -338,7 +344,7 @@
     mindarThree = new MindARThree({
       container:      arContainer,
       imageTargetSrc: MARKER_FILE,
-      maxTrack:       3,
+      maxTrack:       1,
       uiLoading: 'no', uiScanning: 'no', uiError: 'no',
       filterMinCF: 0.0001, filterBeta: 10,
     });
@@ -354,52 +360,54 @@
     fill.position.set(-2, 1, -2);
     scene.add(fill);
 
-    // 3 anchors — indices match the order images were compiled in compile.html:
-    //   0 = marker_1_concert   1 = marker_2_caspar   2 = marker_3_art
-    const anchors  = [0, 1, 2].map(i => mindarThree.addAnchor(i));
-    const contents = [
-      buildConcertHall(anchors[0]),
-      buildCasparDisplay(anchors[1]),
-      build3DArt(anchors[2]),
-    ];
+    // Single anchor on marker index 0 (the original CAMD marker).
+    // Content is chosen by the ?spot= URL parameter so each physical
+    // QR code points to a different spot without needing separate markers.
+    const anchor = mindarThree.addAnchor(0);
     const spotNames = ['Concert Hall', 'Caspar', '3D Art'];
+    const builders  = [buildConcertHall, buildCasparDisplay, build3DArt];
+    const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
+    const content   = builders[safeSpot](anchor);
 
-    let despawnTimers = [null, null, null];
-    let videoTimer    = null;
+    // Update splash to show which spot this is
+    document.querySelector('.splash-title p').textContent =
+      `Northeastern University · ${spotNames[safeSpot]}`;
+    spotLabel.textContent = '📍 ' + spotNames[safeSpot];
 
-    anchors.forEach((anchor, idx) => {
-      anchor.onTargetFound = () => {
-        if (despawnTimers[idx]) { clearTimeout(despawnTimers[idx]); despawnTimers[idx] = null; }
-        anchor.group.visible = true;
-        scanHint.classList.add('hidden');
-        scanRings.classList.add('hidden');
-        spotLabel.textContent = '📍 ' + spotNames[idx];
-        spotLabel.classList.add('visible');
+    let despawnTimer = null;
+    let videoTimer   = null;
 
-        // Video for Caspar spot
-        if (idx === 1 && videoElement && !videoPlaying) {
-          videoTimer = setTimeout(() => {
-            videoElement.play().catch(() => { videoElement.muted = true; videoElement.play(); });
-            videoPlaying = true;
-            playPauseBtn.textContent = '⏸';
-            muteBtn.textContent = '🔇';
-          }, 800);
+    anchor.onTargetFound = () => {
+      if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+      anchor.group.visible = true;
+      scanHint.classList.add('hidden');
+      scanRings.classList.add('hidden');
+      spotLabel.classList.add('visible');
+
+      // Video only for Caspar spot
+      if (safeSpot === 1 && videoElement && !videoPlaying) {
+        videoTimer = setTimeout(() => {
+          videoElement.play().catch(() => { videoElement.muted = true; videoElement.play(); });
+          videoPlaying = true;
+          playPauseBtn.textContent = '⏸';
+          muteBtn.textContent = '🔇';
+        }, 800);
+      }
+    };
+
+    anchor.onTargetLost = () => {
+      if (despawnTimer) clearTimeout(despawnTimer);
+      despawnTimer = setTimeout(() => {
+        anchor.group.visible = false;
+        spotLabel.classList.remove('visible');
+        scanHint.classList.remove('hidden');
+        scanRings.classList.remove('hidden');
+        if (safeSpot === 1 && videoElement && videoPlaying) {
+          if (videoTimer) { clearTimeout(videoTimer); videoTimer = null; }
+          videoElement.pause(); videoPlaying = false; playPauseBtn.textContent = '▶';
         }
-      };
-      anchor.onTargetLost = () => {
-        if (despawnTimers[idx]) clearTimeout(despawnTimers[idx]);
-        despawnTimers[idx] = setTimeout(() => {
-          anchor.group.visible = false;
-          spotLabel.classList.remove('visible');
-          scanHint.classList.remove('hidden');
-          scanRings.classList.remove('hidden');
-          if (idx === 1 && videoElement && videoPlaying) {
-            if (videoTimer) { clearTimeout(videoTimer); videoTimer = null; }
-            videoElement.pause(); videoPlaying = false; playPauseBtn.textContent = '▶';
-          }
-        }, 3000);
-      };
-    });
+      }, 3000);
+    };
 
     try {
       await mindarThree.start();
@@ -414,28 +422,30 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Animate concert hall spotlights (pulsing emissive)
-      const ch = contents[0];
-      ch.traverse(child => {
-        if (child.material && child.material.emissiveIntensity > 0.9) {
-          child.material.emissiveIntensity = 1.0 + Math.sin(t * 2 + child.id * 0.5) * 0.4;
-        }
-      });
+      // Animate concert hall spotlights
+      if (safeSpot === 0) {
+        content.traverse(child => {
+          if (child.material && child.material.emissiveIntensity > 0.9) {
+            child.material.emissiveIntensity = 1.0 + Math.sin(t * 2 + child.id * 0.5) * 0.4;
+          }
+        });
+      }
 
-      // Animate 3D art: rotate knot, orbit spheres, spin outer ring
-      const art = contents[2];
-      art.children.forEach(child => {
-        if (child.userData.isKnot)      child.rotation.y = t * 0.5;
-        if (child.userData.isOuterRing) { child.rotation.x = t * 0.3; child.rotation.z = t * 0.2; }
-        if (child.userData.orbitR) {
-          const a = child.userData.initAngle + t * child.userData.orbitSpeed;
-          child.position.set(
-            Math.cos(a) * child.userData.orbitR,
-            Math.sin(t * 0.4 + child.userData.orbitTilt) * 0.25,
-            Math.sin(a) * child.userData.orbitR
-          );
-        }
-      });
+      // Animate 3D art
+      if (safeSpot === 2) {
+        content.children.forEach(child => {
+          if (child.userData.isKnot)      child.rotation.y = t * 0.5;
+          if (child.userData.isOuterRing) { child.rotation.x = t * 0.3; child.rotation.z = t * 0.2; }
+          if (child.userData.orbitR) {
+            const a = child.userData.initAngle + t * child.userData.orbitSpeed;
+            child.position.set(
+              Math.cos(a) * child.userData.orbitR,
+              Math.sin(t * 0.4 + child.userData.orbitTilt) * 0.25,
+              Math.sin(a) * child.userData.orbitR
+            );
+          }
+        });
+      }
 
       renderer.render(scene, camera);
     });
