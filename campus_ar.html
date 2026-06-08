@@ -248,7 +248,8 @@
     g.add(frame);
 
     // Inner photo
-    const tex = new THREE.TextureLoader().load('./marker_2_caspar.jpg');
+    // Load the display photo (separate from the AR tracking marker image)
+    const tex = new THREE.TextureLoader().load('./caspar_display.jpg');
     const photo = new THREE.Mesh(
       new THREE.PlaneGeometry(1.0, 1.38),
       new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
@@ -346,7 +347,7 @@
       imageTargetSrc: MARKER_FILE,
       maxTrack:       1,
       uiLoading: 'no', uiScanning: 'no', uiError: 'no',
-      filterMinCF: 0.0001, filterBeta: 10,
+      filterMinCF: 0.0001, filterBeta: 0.001,
     });
 
     const { renderer, scene, camera } = mindarThree;
