@@ -97,21 +97,38 @@
 
       status.textContent = 'Loading Mind AR compiler…';
 
-      // Dynamic import — works reliably without global MINDAR variable
-      const MINDAR_URL = 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js';
+      // mindar-image.prod.js is an ES module that sets window.MINDAR.IMAGE
+      // and also exports { Compiler } as a named export.
+      // We import it, then read from either the named export or the global.
       let Compiler;
+      let importErr = '';
       try {
-        const mod = await import(MINDAR_URL);
-        Compiler = mod.Compiler || mod.default?.Compiler;
-      } catch(e) {}
-
-      // Fallback: try unpkg
-      if (!Compiler) {
-        const mod2 = await import('https://unpkg.com/mind-ar@1.2.5/dist/mindar-image.prod.js');
-        Compiler = mod2.Compiler || mod2.default?.Compiler;
+        const mod = await import('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js');
+        // Named export takes priority; fall back to global set by the module
+        Compiler = mod.Compiler
+          ?? window.MINDAR?.IMAGE?.Compiler;
+      } catch(e) {
+        importErr = e.message;
       }
 
-      if (!Compiler) throw new Error('Could not load Mind AR Compiler. Check your internet connection.');
+      // Fallback CDN
+      if (!Compiler) {
+        try {
+          const mod2 = await import('https://unpkg.com/mind-ar@1.2.5/dist/mindar-image.prod.js');
+          Compiler = mod2.Compiler ?? window.MINDAR?.IMAGE?.Compiler;
+        } catch(e2) {
+          importErr += ' | ' + e2.message;
+        }
+      }
+
+      if (!Compiler) {
+        throw new Error(
+          'Could not load Mind AR Compiler.\n' +
+          'Details: ' + importErr + '\n\n' +
+          'Try using the official compiler instead:\n' +
+          'https://hiukim.github.io/mind-ar-js-doc/tools/compile'
+        );
+      }
 
       status.textContent = 'Compiling markers (this takes ~30 seconds)…';
 
