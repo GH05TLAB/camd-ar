@@ -79,7 +79,7 @@
       <p>Northeastern University · 3 Spots</p>
     </div>
     <div class="splash-spots">
-      <div class="spot-chip"><strong>Spot 1</strong>Concert Hall</div>
+      <div class="spot-chip"><strong>Spot 1</strong>Aerial Companion</div>
       <div class="spot-chip"><strong>Spot 2</strong>Caspar</div>
       <div class="spot-chip"><strong>Spot 3</strong>3D Art</div>
     </div>
@@ -107,6 +107,7 @@
   <script type="module">
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
+  import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
   // Each spot uses the same CAMD marker (targets.mind, index 0).
   // Which content to show is determined by the ?spot= URL parameter:
@@ -164,77 +165,44 @@
   //  CONTENT BUILDERS — one per spot
   // ══════════════════════════════════════════════════════════════
 
-  // ── Spot 0 · Concert Hall ────────────────────────────────────
-  function buildConcertHall(anchor) {
+  // ── Spot 0 · Aerial Companion (STL model) ───────────────────
+  function buildAerialCompanion(anchor) {
     const g = new THREE.Group();
-
-    const mat = (hex, emit = 0, ei = 0) => new THREE.MeshStandardMaterial({
-      color: hex, emissive: emit, emissiveIntensity: ei, metalness: 0.3, roughness: 0.6
-    });
-
-    // Floor
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.04, 1.6), mat(0x5c3a1e));
-    floor.position.set(0, -0.02, 0.3);
-    g.add(floor);
-
-    // Back wall
-    const bwall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 0.04), mat(0xd4b483));
-    bwall.position.set(0, 0.8, -0.5);
-    g.add(bwall);
-
-    // Side walls
-    [-1.2, 1.2].forEach(x => {
-      const sw = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.6, 1.0), mat(0xd4b483));
-      sw.position.set(x, 0.8, 0);
-      g.add(sw);
-    });
-
-    // Stage platform
-    const stage = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.45), mat(0x333333));
-    stage.position.set(0, 0.06, -0.3);
-    g.add(stage);
-
-    // Curtains
-    const curtainMat = mat(0x8b0000);
-    [-0.55, 0.55].forEach(x => {
-      const c = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.1, 0.04), curtainMat);
-      c.position.set(x, 0.55, -0.48);
-      g.add(c);
-    });
-
-    // Lighting rig bar
-    const rig = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.0, 8), mat(0x888888));
-    rig.rotation.z = Math.PI / 2;
-    rig.position.set(0, 1.4, -0.1);
-    g.add(rig);
-
-    // Spotlights on rig
-    const lightColors = [0xff4422, 0x2244ff, 0xffee22, 0x22ff88];
-    lightColors.forEach((c, i) => {
-      const lx = -0.6 + i * 0.4;
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.055, 0.13, 8), mat(0x444444));
-      body.position.set(lx, 1.33, -0.1);
-      g.add(body);
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 16), new THREE.MeshStandardMaterial({
-        color: c, emissive: c, emissiveIntensity: 1.2, side: THREE.DoubleSide
-      }));
-      lens.rotation.x = Math.PI / 2;
-      lens.position.set(lx, 1.26, -0.1);
-      g.add(lens);
-    });
-
-    // Audience seats (grid)
-    const seatMat = mat(0xc8102e);
-    for (let row = 0; row < 4; row++) {
-      for (let col = -5; col <= 5; col++) {
-        const s = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.09), seatMat);
-        s.position.set(col * 0.18, 0.05 + row * 0.03, 0.1 + row * 0.18);
-        g.add(s);
-      }
-    }
-
     anchor.group.add(g);
-    g.userData.type = 'concert';
+    g.userData.type = 'aerial';
+
+    const loader = new STLLoader();
+    loader.load(
+      './aerial_companion.stl',
+      (geometry) => {
+        // Center geometry at origin
+        geometry.center();
+        geometry.computeVertexNormals();
+
+        // Auto-scale: fit inside ~1.2 units
+        geometry.computeBoundingBox();
+        const size = new THREE.Vector3();
+        geometry.boundingBox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale  = 1.2 / maxDim;
+
+        const material = new THREE.MeshStandardMaterial({
+          color:             0xc8102e,
+          emissive:          0x400010,
+          emissiveIntensity: 0.25,
+          metalness:         0.55,
+          roughness:         0.3,
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.scale.setScalar(scale);
+        mesh.userData.isAerial = true;
+        g.add(mesh);
+      },
+      undefined,
+      (err) => console.error('STL load failed:', err)
+    );
+
     return g;
   }
 
@@ -365,8 +333,8 @@
     // Content is chosen by the ?spot= URL parameter so each physical
     // QR code points to a different spot without needing separate markers.
     const anchor = mindarThree.addAnchor(0);
-    const spotNames = ['Concert Hall', 'Caspar', '3D Art'];
-    const builders  = [buildConcertHall, buildCasparDisplay, build3DArt];
+    const spotNames = ['Aerial Companion', 'Caspar', '3D Art'];
+    const builders  = [buildAerialCompanion, buildCasparDisplay, build3DArt];
     const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
     const content   = builders[safeSpot](anchor);
 
@@ -423,11 +391,11 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Animate concert hall spotlights
+      // Animate Aerial Companion — slow rotation
       if (safeSpot === 0) {
         content.traverse(child => {
-          if (child.material && child.material.emissiveIntensity > 0.9) {
-            child.material.emissiveIntensity = 1.0 + Math.sin(t * 2 + child.id * 0.5) * 0.4;
+          if (child.userData.isAerial) {
+            child.rotation.y = t * 0.4;
           }
         });
       }
