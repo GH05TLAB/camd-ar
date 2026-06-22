@@ -394,9 +394,9 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Animate STL model — rotate group around world Y (neck axis)
+      // Animate STL model — rotate group around world X (ear axis)
       if (safeSpot === 0) {
-        content.rotation.y = t * 0.4;
+        content.rotation.x = t * 0.4;
       }
 
       // Animate 3D art
