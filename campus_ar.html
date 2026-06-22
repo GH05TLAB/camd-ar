@@ -394,9 +394,13 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Animate STL model — rotate group around world X (ear axis)
+      // Animate STL model — slow rotation
       if (safeSpot === 0) {
-        content.rotation.x = t * 0.4;
+        content.traverse(child => {
+          if (child.userData.isAerial) {
+            child.rotation.y = t * 0.4;
+          }
+        });
       }
 
       // Animate 3D art
