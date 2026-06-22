@@ -196,6 +196,7 @@
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.scale.setScalar(scale);
+        mesh.rotation.z = -Math.PI / 2;
         mesh.userData.isAerial = true;
         g.add(mesh);
       },
