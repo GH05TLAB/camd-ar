@@ -394,13 +394,9 @@
     renderer.setAnimationLoop(() => {
       const t = clock.getElapsedTime();
 
-      // Animate Aerial Companion — slow rotation
+      // Animate STL model — rotate group around world Y (neck axis)
       if (safeSpot === 0) {
-        content.traverse(child => {
-          if (child.userData.isAerial) {
-            child.rotation.y = t * 0.4;
-          }
-        });
+        content.rotation.y = t * 0.4;
       }
 
       // Animate 3D art
