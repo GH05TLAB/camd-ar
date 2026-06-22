@@ -187,15 +187,16 @@
         const scale  = 1.2 / maxDim;
 
         const material = new THREE.MeshStandardMaterial({
-          color:             0xc8102e,
-          emissive:          0x400010,
-          emissiveIntensity: 0.25,
-          metalness:         0.55,
-          roughness:         0.3,
+          color:             0xd8d8d8,
+          emissive:          0x222222,
+          emissiveIntensity: 0.1,
+          metalness:         0.3,
+          roughness:         0.5,
         });
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.scale.setScalar(scale);
+        mesh.rotation.z = Math.PI / 2;
         mesh.userData.isAerial = true;
         g.add(mesh);
       },
