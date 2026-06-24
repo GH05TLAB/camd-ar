@@ -26,23 +26,13 @@
 </head>
 <body>
   <h1>CAMD AR — Marker Compiler</h1>
-  <p style="color:#888;font-size:0.8rem;text-align:center">Compiles the 3 campus spot markers into a single targets.mind file</p>
+  <p style="color:#888;font-size:0.8rem;text-align:center">Compiles the CAMD AR Gallery marker into targets.mind</p>
 
   <div class="markers">
-    <div class="marker-card">
-      <img src="./marker_1_concert.jpg" crossorigin="anonymous" />
-      <strong>Spot 1</strong>
-      <p>Concert Hall</p>
-    </div>
-    <div class="marker-card">
-      <img src="./marker_2_caspar.jpg" crossorigin="anonymous" />
-      <strong>Spot 2</strong>
-      <p>Caspar</p>
-    </div>
-    <div class="marker-card">
-      <img src="./marker_3_art.jpg" crossorigin="anonymous" />
-      <strong>Spot 3</strong>
-      <p>3D Art</p>
+    <div class="marker-card" style="width:260px">
+      <img src="./marker_camd.png" crossorigin="anonymous" style="height:200px" />
+      <strong>CAMD AR Gallery</strong>
+      <p>marker_camd.png</p>
     </div>
   </div>
 
@@ -57,10 +47,8 @@
     <b>Next steps:</b><br>
     1. Move the downloaded <b>targets.mind</b> into this project folder<br>
     &nbsp;&nbsp;&nbsp;(replace the existing one)<br>
-    2. Print <b>marker_1_concert.jpg</b> → put it at Spot 1<br>
-    3. Print <b>marker_2_caspar.jpg</b> → put it at Spot 2<br>
-    4. Print <b>marker_3_art.jpg</b> → put it at Spot 3<br>
-    5. Open <b>Arcade_AR.html</b> and scan any of the 3 markers
+    2. Print <b>marker_camd.png</b> and place it at each AR spot<br>
+    3. Scan with any of the 4 QR codes to trigger AR content
   </div>
 
   <script type="module">
@@ -89,10 +77,8 @@
     status.className = '';
 
     try {
-      const [img1, img2, img3] = await Promise.all([
-        loadImage('./marker_1_concert.jpg'),
-        loadImage('./marker_2_caspar.jpg'),
-        loadImage('./marker_3_art.jpg'),
+      const [img1] = await Promise.all([
+        loadImage('./marker_camd.png'),
       ]);
 
       status.textContent = 'Loading Mind AR compiler…';
@@ -133,7 +119,7 @@
       status.textContent = 'Compiling markers (this takes ~30 seconds)…';
 
       const compiler = new Compiler();
-      await compiler.compileImageTargets([img1, img2, img3], (progress) => {
+      await compiler.compileImageTargets([img1], (progress) => {
         const pct = Math.round(progress * 100);
         bar.style.width = pct + '%';
         status.textContent = `Compiling… ${pct}%`;
