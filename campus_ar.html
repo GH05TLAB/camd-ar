@@ -373,6 +373,26 @@
       }, 3000);
     };
 
+    // Touch rotation for GLB model (spot 0)
+    if (safeSpot === 0) {
+      let touchStart = null;
+      const onTouchStart = (e) => {
+        if (e.touches.length === 1)
+          touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      };
+      const onTouchMove = (e) => {
+        if (!touchStart || !anchor.group.visible || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - touchStart.x;
+        const dy = e.touches[0].clientY - touchStart.y;
+        content.rotation.y += dx * 0.008;
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      };
+      const onTouchEnd = () => { touchStart = null; };
+      arContainer.addEventListener('touchstart', onTouchStart, { passive: true });
+      arContainer.addEventListener('touchmove',  onTouchMove,  { passive: true });
+      arContainer.addEventListener('touchend',   onTouchEnd,   { passive: true });
+    }
+
     try {
       await mindarThree.start();
     } catch (err) {
