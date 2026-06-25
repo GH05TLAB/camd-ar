@@ -107,7 +107,7 @@
   <script type="module">
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
-  import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
   // Each spot uses the same CAMD marker (targets.mind, index 0).
   // Which content to show is determined by the ?spot= URL parameter:
@@ -165,44 +165,37 @@
   //  CONTENT BUILDERS — one per spot
   // ══════════════════════════════════════════════════════════════
 
-  // ── Spot 0 · Aerial Companion (STL model) ───────────────────
+  // ── Spot 0 · DIY VR Implant (GLB model) ────────────────────
   function buildAerialCompanion(anchor) {
     const g = new THREE.Group();
     anchor.group.add(g);
     g.userData.type = 'aerial';
 
-    const loader = new STLLoader();
+    const loader = new GLTFLoader();
     loader.load(
-      './vr_implant_ptak.stl',
-      (geometry) => {
-        // Center geometry at origin
-        geometry.center();
-        geometry.computeVertexNormals();
+      './diy_vr_implant.glb',
+      (gltf) => {
+        const model = gltf.scene;
 
         // Auto-scale: fit inside ~1.2 units
-        geometry.computeBoundingBox();
+        const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
-        geometry.boundingBox.getSize(size);
+        box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
         const scale  = 1.2 / maxDim;
+        model.scale.setScalar(scale);
 
-        const material = new THREE.MeshStandardMaterial({
-          color:             0xd8d8d8,
-          emissive:          0x222222,
-          emissiveIntensity: 0.1,
-          metalness:         0.3,
-          roughness:         0.5,
-        });
+        // Center model at origin
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
 
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.scale.setScalar(scale);
-        mesh.rotation.x = Math.PI / 2;
-        mesh.rotation.y = Math.PI / 2;
-        mesh.userData.isAerial = true;
-        g.add(mesh);
+        model.userData.isAerial = true;
+        g.add(model);
       },
       undefined,
-      (err) => console.error('STL load failed:', err)
+      (err) => console.error('GLB load failed:', err)
     );
 
     return g;
