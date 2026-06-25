@@ -182,7 +182,7 @@
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale  = 1.2 / maxDim;
+        const scale  = 2.4 / maxDim;
         model.scale.setScalar(scale);
 
         // Center model at origin
@@ -388,9 +388,9 @@
         touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       };
       const onTouchEnd = () => { touchStart = null; };
-      arContainer.addEventListener('touchstart', onTouchStart, { passive: true });
-      arContainer.addEventListener('touchmove',  onTouchMove,  { passive: true });
-      arContainer.addEventListener('touchend',   onTouchEnd,   { passive: true });
+      document.addEventListener('touchstart', onTouchStart, { passive: true });
+      document.addEventListener('touchmove',  onTouchMove,  { passive: true });
+      document.addEventListener('touchend',   onTouchEnd,   { passive: true });
     }
 
     try {
