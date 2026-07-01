@@ -108,12 +108,13 @@
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { STLLoader }  from 'three/addons/loaders/STLLoader.js';
 
   // Each spot uses the same CAMD marker (targets.mind, index 0).
   // Which content to show is determined by the ?spot= URL parameter:
-  //   campus_ar.html?spot=0  →  Concert Hall
-  //   campus_ar.html?spot=1  →  Caspar
-  //   campus_ar.html?spot=2  →  3D Art
+  //   campus_ar.html?spot=0  →  BOSTON001TW
+  //   campus_ar.html?spot=1  →  BOSTON002TW
+  //   campus_ar.html?spot=2  →  BOSTON003TW
   const MARKER_FILE = './targets.mind';
   const SPOT = parseInt(new URLSearchParams(location.search).get('spot') ?? '0', 10);
 
@@ -254,97 +255,57 @@
     return g;
   }
 
-  // ── Spot 1 · Caspar Display ──────────────────────────────────
-  function buildCasparDisplay(anchor) {
+  // ── Spot 1 · BOSTON002TW — Honeybee GLB ─────────────────────
+  function buildBoston002TW(anchor) {
     const g = new THREE.Group();
-
-    // Decorative frame
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c1810, metalness: 0.5, roughness: 0.4 });
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.55, 0.04), frameMat);
-    g.add(frame);
-
-    // Inner photo
-    // Load the display photo (separate from the AR tracking marker image)
-    const tex = new THREE.TextureLoader().load('./caspar_display.jpg');
-    const photo = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.0, 1.38),
-      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
-    );
-    photo.position.z = 0.025;
-    g.add(photo);
-
-    // Gold inner border strips
-    const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.3, metalness: 0.9, roughness: 0.1 });
-    [[1.1, 0.03, 0, 0.76, 0.02], [1.1, 0.03, 0, -0.76, 0.02],
-     [0.03, 1.5, -0.54, 0, 0.02], [0.03, 1.5, 0.54, 0, 0.02]].forEach(([w, h, x, y, z]) => {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.01), goldMat);
-      strip.position.set(x, y, z);
-      g.add(strip);
-    });
-
-    // Name plate
-    const canvas = document.createElement('canvas');
-    canvas.width = 512; canvas.height = 80;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#2c1810';
-    ctx.fillRect(0, 0, 512, 80);
-    ctx.fillStyle = '#d4af37';
-    ctx.font = 'bold 34px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('CASPAR', 256, 40);
-    const plateTex = new THREE.CanvasTexture(canvas);
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.1), new THREE.MeshBasicMaterial({ map: plateTex, side: THREE.DoubleSide }));
-    plate.position.set(0, -0.84, 0.03);
-    g.add(plate);
-
     anchor.group.add(g);
-    g.userData.type = 'caspar';
+    const loader = new GLTFLoader();
+    loader.load(
+      './honeybee.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        model.scale.setScalar(3.6 / maxDim);
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
+        g.add(model);
+      },
+      undefined,
+      (err) => console.error('honeybee GLB load failed:', err)
+    );
     return g;
   }
 
-  // ── Spot 2 · 3D Geometric Art ────────────────────────────────
-  function build3DArt(anchor) {
+  // ── Spot 2 · BOSTON003TW — STL sculpture ────────────────────
+  function buildBoston003TW(anchor) {
     const g = new THREE.Group();
-
-    // Central torus knot
-    const knot = new THREE.Mesh(
-      new THREE.TorusKnotGeometry(0.28, 0.08, 120, 18),
-      new THREE.MeshStandardMaterial({ color: 0xc8102e, emissive: 0x500010, emissiveIntensity: 0.5, metalness: 0.8, roughness: 0.15 })
-    );
-    knot.userData.isKnot = true;
-    g.add(knot);
-
-    // Orbiting spheres
-    const orbitColors = [0x4488ff, 0x44ffaa, 0xffaa22, 0xff44cc];
-    orbitColors.forEach((c, i) => {
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.07, 20, 20),
-        new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.6, metalness: 0.6, roughness: 0.2 })
-      );
-      sphere.userData = { orbitR: 0.65, orbitSpeed: 0.7 + i * 0.15, initAngle: (i / 4) * Math.PI * 2, orbitTilt: i * 0.3 };
-      g.userData['sphere' + i] = sphere;
-      g.add(sphere);
-    });
-
-    // Outer decorative ring
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.75, 0.015, 8, 80),
-      new THREE.MeshStandardMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.4, metalness: 0.9, roughness: 0.1 })
-    );
-    ring.userData.isOuterRing = true;
-    g.add(ring);
-
-    // Base pedestal
-    const pedestal = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.2, 0.08, 16),
-      new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.3 })
-    );
-    pedestal.position.y = -0.5;
-    g.add(pedestal);
-
     anchor.group.add(g);
-    g.userData.type = 'art';
+    const loader = new STLLoader();
+    loader.load(
+      './vr_implant_ptak.stl',
+      (geometry) => {
+        geometry.computeVertexNormals();
+        const mat = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 0.3, roughness: 0.55 });
+        const mesh = new THREE.Mesh(geometry, mat);
+        const box = new THREE.Box3().setFromObject(mesh);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        mesh.scale.setScalar(3.6 / maxDim);
+        box.setFromObject(mesh);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        mesh.position.sub(center);
+        g.add(mesh);
+      },
+      undefined,
+      (err) => console.error('STL load failed:', err)
+    );
     return g;
   }
 
@@ -381,8 +342,8 @@
     // Content is chosen by the ?spot= URL parameter so each physical
     // QR code points to a different spot without needing separate markers.
     const anchor = mindarThree.addAnchor(0);
-    const spotNames = ['Aerial Companion', 'Caspar', '3D Art'];
-    const builders  = [buildAerialCompanion, buildCasparDisplay, build3DArt];
+    const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
+    const builders  = [buildAerialCompanion, buildBoston002TW, buildBoston003TW];
     const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
     const content   = builders[safeSpot](anchor);
 
@@ -392,7 +353,6 @@
     spotLabel.textContent = '📍 ' + spotNames[safeSpot];
 
     let despawnTimer = null;
-    let videoTimer   = null;
 
     anchor.onTargetFound = () => {
       if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
@@ -400,16 +360,6 @@
       scanHint.classList.add('hidden');
       scanRings.classList.add('hidden');
       spotLabel.classList.add('visible');
-
-      // Video only for Caspar spot
-      if (safeSpot === 1 && videoElement && !videoPlaying) {
-        videoTimer = setTimeout(() => {
-          videoElement.play().catch(() => { videoElement.muted = true; videoElement.play(); });
-          videoPlaying = true;
-          playPauseBtn.textContent = '⏸';
-          muteBtn.textContent = '🔇';
-        }, 800);
-      }
     };
 
     anchor.onTargetLost = () => {
@@ -419,32 +369,25 @@
         spotLabel.classList.remove('visible');
         scanHint.classList.remove('hidden');
         scanRings.classList.remove('hidden');
-        if (safeSpot === 1 && videoElement && videoPlaying) {
-          if (videoTimer) { clearTimeout(videoTimer); videoTimer = null; }
-          videoElement.pause(); videoPlaying = false; playPauseBtn.textContent = '▶';
-        }
       }, 3000);
     };
 
-    // Touch rotation for GLB model (spot 0)
-    if (safeSpot === 0) {
-      let touchStart = null;
-      const onTouchStart = (e) => {
-        if (e.touches.length === 1)
-          touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      };
-      const onTouchMove = (e) => {
-        if (!touchStart || !anchor.group.visible || e.touches.length !== 1) return;
-        const dx = e.touches[0].clientX - touchStart.x;
-        const dy = e.touches[0].clientY - touchStart.y;
-        content.rotation.y += dx * 0.008;
-        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      };
-      const onTouchEnd = () => { touchStart = null; };
-      document.addEventListener('touchstart', onTouchStart, { passive: true });
-      document.addEventListener('touchmove',  onTouchMove,  { passive: true });
-      document.addEventListener('touchend',   onTouchEnd,   { passive: true });
-    }
+    // Touch rotation — all spots allow Y-axis swipe rotation
+    let touchStart = null;
+    const onTouchStart = (e) => {
+      if (e.touches.length === 1)
+        touchStart = { x: e.touches[0].clientX };
+    };
+    const onTouchMove = (e) => {
+      if (!touchStart || !anchor.group.visible || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - touchStart.x;
+      content.rotation.y += dx * 0.008;
+      touchStart = { x: e.touches[0].clientX };
+    };
+    const onTouchEnd = () => { touchStart = null; };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove',  onTouchMove,  { passive: true });
+    document.addEventListener('touchend',   onTouchEnd,   { passive: true });
 
     try {
       await mindarThree.start();
@@ -457,24 +400,8 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
-      const t = clock.getElapsedTime();
-
-
-      // Animate 3D art
-      if (safeSpot === 2) {
-        content.children.forEach(child => {
-          if (child.userData.isKnot)      child.rotation.y = t * 0.5;
-          if (child.userData.isOuterRing) { child.rotation.x = t * 0.3; child.rotation.z = t * 0.2; }
-          if (child.userData.orbitR) {
-            const a = child.userData.initAngle + t * child.userData.orbitSpeed;
-            child.position.set(
-              Math.cos(a) * child.userData.orbitR,
-              Math.sin(t * 0.4 + child.userData.orbitTilt) * 0.25,
-              Math.sin(a) * child.userData.orbitR
-            );
-          }
-        });
-      }
+      // Slow auto-rotation on Y axis for all spots
+      content.rotation.y += 0.004;
 
       renderer.render(scene, camera);
     });
