@@ -341,7 +341,7 @@
     // QR code points to a different spot without needing separate markers.
     const anchor = mindarThree.addAnchor(0);
     const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
+    const builders  = [buildAerialCompanion, buildBoston002TW, buildBoston003TW];
     const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
     const content   = builders[safeSpot](anchor);
 
