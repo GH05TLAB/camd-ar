@@ -234,7 +234,7 @@
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale  = 3.6 / maxDim;
+        const scale  = 1.8 / maxDim;
         model.scale.setScalar(scale);
 
         // Center model at origin
@@ -281,30 +281,28 @@
     return g;
   }
 
-  // ── Spot 2 · BOSTON003TW — STL sculpture ────────────────────
+  // ── Spot 2 · BOSTON003TW — DIY VR Implant GLB ───────────────
   function buildBoston003TW(anchor) {
     const g = new THREE.Group();
     anchor.group.add(g);
-    const loader = new STLLoader();
+    const loader = new GLTFLoader();
     loader.load(
-      './vr_implant_ptak.stl',
-      (geometry) => {
-        geometry.computeVertexNormals();
-        const mat = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 0.3, roughness: 0.55 });
-        const mesh = new THREE.Mesh(geometry, mat);
-        const box = new THREE.Box3().setFromObject(mesh);
+      './diy_vr_implant.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
-        mesh.scale.setScalar(3.6 / maxDim);
-        box.setFromObject(mesh);
+        model.scale.setScalar(3.6 / maxDim);
+        box.setFromObject(model);
         const center = new THREE.Vector3();
         box.getCenter(center);
-        mesh.position.sub(center);
-        g.add(mesh);
+        model.position.sub(center);
+        g.add(model);
       },
       undefined,
-      (err) => console.error('STL load failed:', err)
+      (err) => console.error('diy_vr_implant GLB load failed:', err)
     );
     return g;
   }
@@ -343,7 +341,7 @@
     // QR code points to a different spot without needing separate markers.
     const anchor = mindarThree.addAnchor(0);
     const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders  = [buildAerialCompanion, buildBoston002TW, buildBoston003TW];
+    const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
     const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
     const content   = builders[safeSpot](anchor);
 
@@ -401,7 +399,7 @@
 
     renderer.setAnimationLoop(() => {
       // Slow auto-rotation on Y axis for all spots
-      content.rotation.y += 0.004;
+      content.rotation.y += 0.002;
 
       renderer.render(scene, camera);
     });
