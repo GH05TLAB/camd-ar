@@ -165,7 +165,58 @@
   //  CONTENT BUILDERS — one per spot
   // ══════════════════════════════════════════════════════════════
 
-  // ── Spot 0 · DIY VR Implant (GLB model) ────────────────────
+  // ── Spot 0 · Robotic Bee (GLB + external PBR textures) ──────
+
+  // Color-matched mapping: GLB lambert material name → texture part name
+  const BEE_MAT_PART = {
+    'lambert12':'butbutton','lambert8':'tube2','lambert6':'wingbutton',
+    'lambert17':'mouthleft','lambert4':'but','lambert15':'legs',
+    'layeredShader1':'mouth2','mayabee_final2_defaultMat1':'wings',
+    'lambert11':'wingline','lambert13':'chilun','lambert16':'wingpin',
+    'lambert7':'eyebutton','lambert3':'blackline','lambert19':'body2',
+    'blinn1':'legbutton','phong1':'head_tube','lambert14':'addon',
+    'lambert5':'mouthpin','lambert20':'mouth','lambert10':'pins',
+    'lambert18':'head','lambert2':'antenna','lambert9':'eyes',
+    'lambert21':'yellowline'
+  };
+  const BEE_HAS_EMISSIVE = new Set([
+    'antenna','blackline','body2','but','eyebutton','eyes','head','wingpin','wings'
+  ]);
+
+  function applyBeeTextures(model) {
+    const tl   = new THREE.TextureLoader();
+    const base = './bee/Robotic_Bee_PBR_Textures_CS_v13b/beecolore_';
+    const seen = new Set();
+
+    model.traverse(obj => {
+      if (!obj.isMesh) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(mat => {
+        if (seen.has(mat.uuid)) return;
+        seen.add(mat.uuid);
+        const part = BEE_MAT_PART[mat.name];
+        if (!part) return;
+
+        const bc = tl.load(base + part + '_BaseColor.png');
+        bc.colorSpace = THREE.SRGBColorSpace;
+        mat.map          = bc;
+        mat.normalMap    = tl.load(base + part + '_Normal.png');
+        mat.roughnessMap = tl.load(base + part + '_Roughness.png');
+        mat.metalnessMap = tl.load(base + part + '_Metallic.png');
+        mat.metalness    = 1.0;
+        mat.roughness    = 1.0;
+
+        if (BEE_HAS_EMISSIVE.has(part)) {
+          mat.emissiveMap       = tl.load(base + part + '_Emissive.png');
+          mat.emissive          = new THREE.Color(1, 1, 1);
+          mat.emissiveIntensity = 0.8;
+        }
+
+        mat.needsUpdate = true;
+      });
+    });
+  }
+
   function buildAerialCompanion(anchor) {
     const g = new THREE.Group();
     anchor.group.add(g);
@@ -177,7 +228,7 @@
       (gltf) => {
         const model = gltf.scene;
 
-        // Auto-scale: fit inside ~1.2 units
+        // Auto-scale: fit inside ~3.6 units
         const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
@@ -190,6 +241,8 @@
         const center = new THREE.Vector3();
         box.getCenter(center);
         model.position.sub(center);
+
+        applyBeeTextures(model);
 
         model.userData.isAerial = true;
         g.add(model);
