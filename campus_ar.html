@@ -75,16 +75,11 @@
   <div id="splash">
     <div class="splash-logo"><span>C</span><span>A</span><span>M</span><span>D</span></div>
     <div class="splash-title">
-      <h1>CAMD Campus AR</h1>
-      <p>Northeastern University · 3 Spots</p>
-    </div>
-    <div class="splash-spots">
-      <div class="spot-chip"><strong>Spot 1</strong>Aerial Companion</div>
-      <div class="spot-chip"><strong>Spot 2</strong>Caspar</div>
-      <div class="spot-chip"><strong>Spot 3</strong>3D Art</div>
+      <h1>CAMD AR Gallery</h1>
+      <p id="splash-spot-name" style="font-family:'Courier New',monospace;font-size:0.8rem;letter-spacing:0.12em;color:var(--red);">BOSTON001TW</p>
     </div>
     <div style="font-family:'Courier New',monospace;font-size:0.78rem;color:rgba(255,255,255,0.5);text-align:center;max-width:300px;line-height:1.7">
-      Find any of the 3 campus markers,<br>tap Start AR and point your camera at it.
+      Point your camera at the CAMD marker<br>to trigger the AR experience.
     </div>
     <button id="start-btn">Start AR</button>
   </div>
@@ -104,7 +99,6 @@
     <div id="scan-hint">Point camera at any CAMD marker</div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script type="module">
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
@@ -119,7 +113,7 @@
   const MARKER_FILE = './targets.mind';
   const SPOT = parseInt(new URLSearchParams(location.search).get('spot') ?? '0', 10);
 
-  let mindarThree = null, clock = null, qrScanInterval = null;
+  let mindarThree = null, clock = null;
 
   const splash       = document.getElementById('splash');
   const arContainer  = document.getElementById('ar-container');
@@ -356,8 +350,7 @@
     }
 
     // Update splash to show which spot this is
-    document.querySelector('.splash-title p').textContent =
-      `Northeastern University · ${spotNames[safeSpot]}`;
+    document.getElementById('splash-spot-name').textContent = spotNames[safeSpot];
     spotLabel.textContent = '📍 ' + spotNames[safeSpot];
 
     let despawnTimer = null;
@@ -407,34 +400,6 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
-    // QR scanner — switches content when camera sees a marker with a different ?spot=
-    // Does NOT fire on the same spot already loaded (cooldown + equality check in switchToSpot)
-    const arVideo = arContainer.querySelector('video');
-    const qrCanvas = document.createElement('canvas');
-    const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
-    let qrCooldown = false;
-
-    qrScanInterval = setInterval(() => {
-      if (!arVideo || arVideo.readyState < 2 || !arVideo.videoWidth) return;
-      const W = Math.floor(arVideo.videoWidth  / 2);
-      const H = Math.floor(arVideo.videoHeight / 2);
-      qrCanvas.width = W; qrCanvas.height = H;
-      qrCtx.drawImage(arVideo, 0, 0, W, H);
-      const imageData = qrCtx.getImageData(0, 0, W, H);
-      const code = window.jsQR?.(imageData.data, W, H, { inversionAttempts: 'dontInvert' });
-      if (code && !qrCooldown) {
-        const m = code.data.match(/[?&]spot=(\d)/);
-        if (m) {
-          const detected = parseInt(m[1]);
-          if (detected >= 0 && detected <= 2 && detected !== activeSpot) {
-            switchToSpot(detected);
-            qrCooldown = true;
-            setTimeout(() => { qrCooldown = false; }, 3000);
-          }
-        }
-      }
-    }, 700);
-
     renderer.setAnimationLoop(() => {
       content.rotation.y += 0.002;
       renderer.render(scene, camera);
@@ -442,7 +407,6 @@
   }
 
   async function stopAR() {
-    if (qrScanInterval) { clearInterval(qrScanInterval); qrScanInterval = null; }
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
       mindarThree.renderer.setAnimationLoop(null);
