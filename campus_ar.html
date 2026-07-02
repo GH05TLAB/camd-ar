@@ -99,6 +99,7 @@
     <div id="scan-hint">Point camera at any CAMD marker</div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script type="module">
   import * as THREE from 'three';
   import { MindARThree } from 'mindar-image-three';
@@ -113,7 +114,7 @@
   const MARKER_FILE = './targets.mind';
   const SPOT = parseInt(new URLSearchParams(location.search).get('spot') ?? '0', 10);
 
-  let mindarThree = null, clock = null;
+  let mindarThree = null, clock = null, qrScanInterval = null;
 
   const splash       = document.getElementById('splash');
   const arContainer  = document.getElementById('ar-container');
@@ -338,7 +339,8 @@
     const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
     const builders  = [buildAerialCompanion, buildBoston002TW, buildBoston003TW];
     const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
-    const content   = builders[safeSpot](anchor);
+    let content     = builders[safeSpot](anchor);
+    let activeSpot  = safeSpot;
 
     // Update splash to show which spot this is
     document.querySelector('.splash-title p').textContent =
@@ -392,15 +394,51 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
-    renderer.setAnimationLoop(() => {
-      // Slow auto-rotation on Y axis for all spots
-      content.rotation.y += 0.002;
+    // QR scanner — reads camera frames and switches content when a spot QR is detected
+    const arVideo = arContainer.querySelector('video');
+    const qrCanvas = document.createElement('canvas');
+    const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
+    let qrCooldown = false;
 
+    function switchToSpot(newSpot) {
+      if (newSpot === activeSpot) return;
+      anchor.group.remove(content);
+      activeSpot = newSpot;
+      content = builders[newSpot](anchor);
+      spotLabel.textContent = spotNames[newSpot];
+    }
+
+    function scanForQR() {
+      if (!arVideo || arVideo.readyState < 2 || !arVideo.videoWidth || qrCooldown) return;
+      qrCanvas.width  = Math.floor(arVideo.videoWidth  / 2);
+      qrCanvas.height = Math.floor(arVideo.videoHeight / 2);
+      qrCtx.drawImage(arVideo, 0, 0, qrCanvas.width, qrCanvas.height);
+      const imageData = qrCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+      if (!code) return;
+      // Match ?spot=N or BOSTON00NTW
+      const urlMatch  = code.data.match(/[?&]spot=(\d)/);
+      const nameMatch = code.data.match(/BOSTON00(\d)TW/i);
+      const spotted = urlMatch  ? parseInt(urlMatch[1])
+                    : nameMatch ? parseInt(nameMatch[1]) - 1
+                    : -1;
+      if (spotted >= 0 && spotted <= 2 && spotted !== activeSpot) {
+        switchToSpot(spotted);
+        qrCooldown = true;
+        setTimeout(() => { qrCooldown = false; }, 2500);
+      }
+    }
+
+    qrScanInterval = setInterval(scanForQR, 700);
+
+    renderer.setAnimationLoop(() => {
+      content.rotation.y += 0.002;
       renderer.render(scene, camera);
     });
   }
 
   async function stopAR() {
+    if (qrScanInterval) { clearInterval(qrScanInterval); qrScanInterval = null; }
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
       mindarThree.renderer.setAnimationLoop(null);
