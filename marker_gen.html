@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CAMD AR — Marker Generator</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f0f0f0; font-family: 'Courier New', monospace; padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 2rem; }
+    h1 { font-size: 1rem; letter-spacing: 0.12em; text-transform: uppercase; }
+    .layout { display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center; }
+    .preview-wrap { position: relative; display: inline-block; background: #fff; border: 1px solid #ccc; }
+    .preview-wrap canvas { display: block; }
+    .controls { background: #fff; border: 1px solid #ccc; padding: 1.5rem; min-width: 260px; display: flex; flex-direction: column; gap: 1rem; }
+    label { font-size: 0.75rem; letter-spacing: 0.08em; display: flex; flex-direction: column; gap: 4px; }
+    input[type=range] { width: 100%; }
+    .val { color: #c8102e; font-weight: bold; }
+    .tabs { display: flex; gap: 0.5rem; }
+    .tab { padding: 0.4rem 0.8rem; border: 1px solid #ccc; cursor: pointer; font-family: inherit; font-size: 0.75rem; background: #fff; }
+    .tab.active { background: #c8102e; color: #fff; border-color: #c8102e; }
+    .btn { background: #1a1a1a; color: #fff; border: none; padding: 0.7rem 1.5rem; font-family: inherit; font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+    .btn:hover { background: #c8102e; }
+    .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    @media print { .controls, h1, .tabs-row { display: none; } }
+  </style>
+</head>
+<body>
+  <h1>CAMD AR — Marker Generator</h1>
+
+  <div class="tabs-row tabs">
+    <button class="tab active" onclick="selectSpot(0)">BOSTON001TW</button>
+    <button class="tab" onclick="selectSpot(1)">BOSTON002TW</button>
+    <button class="tab" onclick="selectSpot(2)">BOSTON003TW</button>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="preview-wrap">
+        <canvas id="preview" width="800" height="800"></canvas>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>QR position X: <span class="val" id="vx">52</span>%
+        <input type="range" id="sx" min="0" max="90" value="52" oninput="redraw()">
+      </label>
+      <label>QR position Y: <span class="val" id="vy">44</span>%
+        <input type="range" id="sy" min="0" max="90" value="44" oninput="redraw()">
+      </label>
+      <label>QR size: <span class="val" id="vsz">38</span>%
+        <input type="range" id="ssz" min="10" max="60" value="38" oninput="redraw()">
+      </label>
+
+      <div class="btn-row">
+        <button class="btn" onclick="downloadCurrent()">Download current</button>
+        <button class="btn" onclick="downloadAll()">Download all 3</button>
+      </div>
+
+      <div style="font-size:0.7rem;color:#888;line-height:1.6">
+        Dostosuj pozycję QR kodu<br>suwakami, potem pobierz.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BASE_URL = 'https://gh05tlab.github.io/camd-ar/campus_ar.html';
+    const SPOTS = [
+      { name: 'BOSTON001TW', url: BASE_URL + '?spot=0' },
+      { name: 'BOSTON002TW', url: BASE_URL + '?spot=1' },
+      { name: 'BOSTON003TW', url: BASE_URL + '?spot=2' },
+    ];
+
+    let currentSpot = 0;
+    let baseImg = null;
+    const qrCache = {};
+
+    const preview = document.getElementById('preview');
+    const ctx = preview.getContext('2d');
+
+    function getParams() {
+      return {
+        x: parseFloat(document.getElementById('sx').value) / 100,
+        y: parseFloat(document.getElementById('sy').value) / 100,
+        sz: parseFloat(document.getElementById('ssz').value) / 100,
+      };
+    }
+
+    function updateLabels() {
+      document.getElementById('vx').textContent = document.getElementById('sx').value;
+      document.getElementById('vy').textContent = document.getElementById('sy').value;
+      document.getElementById('vsz').textContent = document.getElementById('ssz').value;
+    }
+
+    async function getQR(url, size) {
+      const key = url + '_' + size;
+      if (qrCache[key]) return qrCache[key];
+      return new Promise((resolve) => {
+        const c = document.createElement('canvas');
+        QRCode.toCanvas(c, url, { width: size, margin: 1, color: { dark: '#000000', light: '#ffffff' } }, () => {
+          qrCache[key] = c;
+          resolve(c);
+        });
+      });
+    }
+
+    async function drawMarker(targetCtx, spotIndex) {
+      const W = 800, H = 800;
+      const { x, y, sz } = getParams();
+      const qrW = Math.round(W * sz);
+      const qrX = Math.round(W * x);
+      const qrY = Math.round(H * y);
+
+      targetCtx.clearRect(0, 0, W, H);
+      if (baseImg) targetCtx.drawImage(baseImg, 0, 0, W, H);
+
+      // White background behind QR to cover any existing content
+      targetCtx.fillStyle = '#ffffff';
+      targetCtx.fillRect(qrX, qrY, qrW, qrW);
+
+      const qrCanvas = await getQR(SPOTS[spotIndex].url, qrW);
+      targetCtx.drawImage(qrCanvas, qrX, qrY, qrW, qrW);
+
+      // Spot label below QR
+      targetCtx.fillStyle = '#1a1a1a';
+      targetCtx.font = `bold ${Math.round(qrW * 0.07)}px 'Courier New', monospace`;
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText(SPOTS[spotIndex].name, qrX + qrW / 2, qrY + qrW + Math.round(qrW * 0.1));
+    }
+
+    async function redraw() {
+      updateLabels();
+      await drawMarker(ctx, currentSpot);
+    }
+
+    function selectSpot(i) {
+      currentSpot = i;
+      document.querySelectorAll('.tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
+      redraw();
+    }
+
+    function downloadCurrent() {
+      const a = document.createElement('a');
+      a.download = `marker_${SPOTS[currentSpot].name}.png`;
+      a.href = preview.toDataURL('image/png');
+      a.click();
+    }
+
+    async function downloadAll() {
+      for (let i = 0; i < 3; i++) {
+        const c = document.createElement('canvas');
+        c.width = 800; c.height = 800;
+        const tctx = c.getContext('2d');
+        await drawMarker(tctx, i);
+        const a = document.createElement('a');
+        a.download = `marker_${SPOTS[i].name}.png`;
+        a.href = c.toDataURL('image/png');
+        a.click();
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    // Load base image
+    baseImg = new Image();
+    baseImg.onload = () => redraw();
+    baseImg.onerror = () => {
+      // Fallback: draw white rectangle as base
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 800, 800);
+      redraw();
+    };
+    baseImg.src = './marker_base.png';
+  </script>
+</body>
+</html>
