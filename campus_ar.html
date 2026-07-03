@@ -105,13 +105,10 @@
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { STLLoader }  from 'three/addons/loaders/STLLoader.js';
 
-  // Each spot uses the same CAMD marker (targets.mind, index 0).
-  // Which content to show is determined by the ?spot= URL parameter:
-  //   campus_ar.html?spot=0  →  BOSTON001TW
-  //   campus_ar.html?spot=1  →  BOSTON002TW
-  //   campus_ar.html?spot=2  →  BOSTON003TW
+  // 3 distinct marker images compiled into targets.mind (index 0/1/2).
+  // Each anchor tracks a different physical marker and shows its own content.
+  // One shared QR code opens this page — no ?spot= parameter needed.
   const MARKER_FILE = './targets.mind';
-  const SPOT = parseInt(new URLSearchParams(location.search).get('spot') ?? '0', 10);
 
   let mindarThree = null, clock = null;
 
@@ -331,58 +328,54 @@
     fill.position.set(-2, 1, -2);
     scene.add(fill);
 
-    // Single anchor on marker index 0 (the original CAMD marker).
-    // Content is chosen by the ?spot= URL parameter so each physical
-    // QR code points to a different spot without needing separate markers.
-    const anchor = mindarThree.addAnchor(0);
+    // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
+    // Content switches automatically when the camera sees a different marker.
+    // One shared QR code opens this page — no ?spot= needed.
     const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders  = [buildAerialCompanion, buildBoston002TW, buildBoston003TW];
-    const safeSpot  = Math.max(0, Math.min(2, isNaN(SPOT) ? 0 : SPOT));
-    let content     = builders[safeSpot](anchor);
-    let activeSpot  = safeSpot;
+    const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
+    const contents  = [
+      buildAerialCompanion(anchors[0]),
+      buildBoston002TW(anchors[1]),
+      buildBoston003TW(anchors[2])
+    ];
+    let activeContent = null;
 
-    function switchToSpot(newSpot) {
-      if (newSpot === activeSpot) return;
-      anchor.group.remove(content);
-      activeSpot = newSpot;
-      content = builders[newSpot](anchor);
-      spotLabel.textContent = spotNames[newSpot];
-    }
+    document.getElementById('splash-spot-name').textContent = 'AR Gallery';
 
-    // Update splash to show which spot this is
-    document.getElementById('splash-spot-name').textContent = spotNames[safeSpot];
-    spotLabel.textContent = '📍 ' + spotNames[safeSpot];
+    anchors.forEach((anchor, i) => {
+      let despawnTimer = null;
+      anchor.onTargetFound = () => {
+        if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+        anchor.group.visible = true;
+        activeContent = contents[i];
+        scanHint.classList.add('hidden');
+        scanRings.classList.add('hidden');
+        spotLabel.textContent = '📍 ' + spotNames[i];
+        spotLabel.classList.add('visible');
+      };
+      anchor.onTargetLost = () => {
+        if (despawnTimer) clearTimeout(despawnTimer);
+        despawnTimer = setTimeout(() => {
+          anchor.group.visible = false;
+          if (activeContent === contents[i]) {
+            activeContent = null;
+            spotLabel.classList.remove('visible');
+            scanHint.classList.remove('hidden');
+            scanRings.classList.remove('hidden');
+          }
+        }, 3000);
+      };
+    });
 
-    let despawnTimer = null;
-
-    anchor.onTargetFound = () => {
-      if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
-      anchor.group.visible = true;
-      scanHint.classList.add('hidden');
-      scanRings.classList.add('hidden');
-      spotLabel.classList.add('visible');
-    };
-
-    anchor.onTargetLost = () => {
-      if (despawnTimer) clearTimeout(despawnTimer);
-      despawnTimer = setTimeout(() => {
-        anchor.group.visible = false;
-        spotLabel.classList.remove('visible');
-        scanHint.classList.remove('hidden');
-        scanRings.classList.remove('hidden');
-      }, 3000);
-    };
-
-    // Touch rotation — all spots allow Y-axis swipe rotation
+    // Touch rotation — rotates whichever content is currently visible
     let touchStart = null;
     const onTouchStart = (e) => {
-      if (e.touches.length === 1)
-        touchStart = { x: e.touches[0].clientX };
+      if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX };
     };
     const onTouchMove = (e) => {
-      if (!touchStart || !anchor.group.visible || e.touches.length !== 1) return;
+      if (!touchStart || !activeContent || e.touches.length !== 1) return;
       const dx = e.touches[0].clientX - touchStart.x;
-      content.rotation.y += dx * 0.008;
+      activeContent.rotation.y += dx * 0.008;
       touchStart = { x: e.touches[0].clientX };
     };
     const onTouchEnd = () => { touchStart = null; };
@@ -401,7 +394,7 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
-      content.rotation.y += 0.002;
+      contents.forEach(c => { c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
   }
