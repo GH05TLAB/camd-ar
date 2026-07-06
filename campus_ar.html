@@ -5,11 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>CAMD AR — Campus Experience</title>
 
+  <link rel="preload" href="./targets.mind" as="fetch" crossorigin="anonymous">
+
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
       "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
     }
   }
@@ -74,17 +76,17 @@
 
   <div id="splash">
     <div class="splash-logo"><span>C</span><span>A</span><span>M</span><span>D</span></div>
+    <div class="splash-title" style="margin-top:0.3rem;margin-bottom:0.2rem">
+      <h1 style="font-size:clamp(0.85rem,3vw,1rem);opacity:0.4;letter-spacing:0.15em;text-transform:uppercase">CAMD AR Gallery</h1>
+    </div>
     <div style="text-align:center;max-width:320px;padding:0 0.5rem">
       <p style="font-size:clamp(1.05rem,4.5vw,1.3rem);color:var(--white);line-height:1.65;margin:0">
         Hold your camera at the CAMD marker<br>
-        <span style="color:var(--red)">(if needed, slowly move closer or further away)</span><br>
-        to trigger the AR experience.
+        to trigger the AR experience.<br>
+        <span style="color:rgba(255,255,255,0.4);font-size:0.9em">(if needed, slowly move closer or further away)</span>
       </p>
     </div>
-    <div class="splash-title" style="margin-top:0.2rem">
-      <h1 style="font-size:clamp(0.85rem,3vw,1rem);opacity:0.4;letter-spacing:0.15em;text-transform:uppercase">CAMD AR Gallery</h1>
-    </div>
-    <button id="start-btn">Start AR</button>
+    <button id="start-btn">Start AR Experience</button>
   </div>
 
   <div id="ar-container"></div>
@@ -332,23 +334,19 @@
     scene.add(fill);
 
     // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
-    // Content switches automatically when the camera sees a different marker.
-    // One shared QR code opens this page — no ?spot= needed.
-    const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
-    const contents  = [
-      buildBoston002TW(anchors[0]),
-      buildAerialCompanion(anchors[1]),
-      buildBoston003TW(anchors[2])
-    ];
+    // GLB models are lazy-loaded on first detection to speed up initial startup.
+    const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
+    const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
+    const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
+    const contents   = [null, null, null];
     let activeContent = null;
-
-    document.getElementById('splash-spot-name').textContent = 'AR Gallery';
 
     anchors.forEach((anchor, i) => {
       let despawnTimer = null;
       anchor.onTargetFound = () => {
         if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+        // Lazy-load model on first detection
+        if (!contents[i]) contents[i] = builders[i](anchor);
         anchor.group.visible = true;
         activeContent = contents[i];
         scanHint.classList.add('hidden');
@@ -397,7 +395,7 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
-      contents.forEach(c => { c.rotation.y += 0.002; });
+      contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
   }
