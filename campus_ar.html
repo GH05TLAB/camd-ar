@@ -275,6 +275,46 @@
   }
 
   // ══════════════════════════════════════════════════════════════
+  //  WEATHER-BASED LIGHTING
+  // ══════════════════════════════════════════════════════════════
+
+  async function getWeatherLighting() {
+    const NEUTRAL = { aC: 0xffffff, aI: 0.4, dC: 0xffffff, dI: 0.9, fC: 0xffffff, fI: 0.2, dP: [2,4,3] };
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 })
+      );
+      const { latitude: lat, longitude: lon } = pos.coords;
+      const api = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=weathercode,is_day,cloudcover&timezone=auto`;
+      const data = await (await fetch(api)).json();
+      const { weathercode: wc, is_day, cloudcover: cc } = data.current;
+
+      if (!is_day) {
+        // Night — clear (moonlight blue) vs cloudy (near-dark)
+        return wc <= 2
+          ? { aC: 0x0d1b35, aI: 0.20, dC: 0x4466bb, dI: 0.35, fC: 0x203560, fI: 0.10, dP: [1,5,2] }
+          : { aC: 0x0a1020, aI: 0.12, dC: 0x202d40, dI: 0.15, fC: 0x182030, fI: 0.08, dP: [2,4,3] };
+      }
+      if (wc >= 95)
+        // Thunderstorm — very dark blue-gray
+        return { aC: 0x2e3540, aI: 0.28, dC: 0x404d5c, dI: 0.18, fC: 0x304050, fI: 0.10, dP: [1,3,2] };
+      if (wc >= 51)
+        // Rain / drizzle — cool blue-gray
+        return { aC: 0x7a8fa8, aI: 0.38, dC: 0x5878a0, dI: 0.28, fC: 0x4a6890, fI: 0.14, dP: [1,4,2] };
+      if (wc === 3 || cc > 70)
+        // Overcast — bright but flat, no hard shadows
+        return { aC: 0xd0dce8, aI: 0.65, dC: 0xbcccd8, dI: 0.38, fC: 0xc8d4dc, fI: 0.25, dP: [2,5,3] };
+      if (cc > 30)
+        // Partly cloudy — soft daylight
+        return { aC: 0xe8eff8, aI: 0.55, dC: 0xd4e4f0, dI: 0.80, fC: 0xc0d4e8, fI: 0.20, dP: [2,5,3] };
+      // Clear sunny — warm yellow-white sun
+      return { aC: 0xfff5d6, aI: 0.60, dC: 0xfff0b0, dI: 1.40, fC: 0x87ceeb, fI: 0.15, dP: [2,6,2] };
+    } catch {
+      return NEUTRAL;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
   //  AR START / STOP
   // ══════════════════════════════════════════════════════════════
 
@@ -283,6 +323,9 @@
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
     arUI.style.display = 'block';
+
+    // Fetch weather in parallel with MindAR init (takes ~1s vs MindAR's 5-15s)
+    const weatherPromise = getWeatherLighting();
 
     mindarThree = new MindARThree({
       container:      arContainer,
@@ -294,14 +337,13 @@
 
     const { renderer, scene, camera } = mindarThree;
 
-    // Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    // Default neutral lighting — replaced by weather result after mindarThree.start()
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(2, 4, 3);
-    scene.add(dir);
     const fill = new THREE.DirectionalLight(0xffffff, 0.2);
     fill.position.set(-2, 1, -2);
-    scene.add(fill);
+    scene.add(ambient, dir, fill);
 
     // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
     // GLB models are lazy-loaded on first detection to speed up initial startup.
@@ -360,6 +402,12 @@
       alert('Could not start AR. Make sure you are on HTTPS and camera access is granted.');
       stopAR(); return;
     }
+
+    // Apply weather lighting — should already be resolved since MindAR took longer
+    const lx = await weatherPromise;
+    ambient.color.setHex(lx.aC); ambient.intensity = lx.aI;
+    dir.color.setHex(lx.dC);    dir.intensity = lx.dI;    dir.position.set(...lx.dP);
+    fill.color.setHex(lx.fC);   fill.intensity = lx.fI;
 
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
