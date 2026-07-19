@@ -436,9 +436,8 @@
       scene.add(fg);
       return fg;
     });
-    const markerVisibles = [false, false, false];
-    const despawnTimers  = [null, null, null];
-    // Reusable decompose targets — avoids per-frame GC pressure
+    const despawnTimers = [null, null, null];
+    // Reusable decompose targets
     const _pos  = new THREE.Vector3();
     const _quat = new THREE.Quaternion();
     const _scl  = new THREE.Vector3();
@@ -449,18 +448,24 @@
         if (despawnTimers[i]) { clearTimeout(despawnTimers[i]); despawnTimers[i] = null; }
         if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
         frozenGroups[i].visible = true;
-        markerVisibles[i] = true;
         activeContent = contents[i];
 
         if (!worldLocked[i]) {
+          // First detection only: snapshot the marker's world pose and freeze it.
+          // Re-scanning the marker afterwards does nothing — the frozenGroup never
+          // moves again after this point (until the user exits AR).
           worldLocked[i] = true;
+          anchor.group.updateWorldMatrix(true, false);
+          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
+          frozenGroups[i].position.copy(_pos);
+          frozenGroups[i].quaternion.copy(_quat);
+          frozenGroups[i].scale.copy(_scl);
+          camera.quaternion.set(0, 0, 0, 1);
+          lockCamQuat = null;
+          lockDevQuat = null;
           lockBadge.classList.add('active');
         }
-        // Marker visible — reset camera to identity so MindAR drives position
-        // cleanly, without leftover rotation from a previous gyroscope session
-        camera.quaternion.set(0, 0, 0, 1);
-        lockCamQuat = null;
-        lockDevQuat = null;
+        // Already world-locked: content stays frozen, camera/gyro unchanged.
 
         scanHint.classList.add('hidden');
         scanRings.classList.add('hidden');
@@ -468,9 +473,7 @@
         spotLabel.classList.add('visible');
       };
       anchor.onTargetLost = () => {
-        markerVisibles[i] = false;
         if (!worldLocked[i]) {
-          // Not yet placed — normal 3 s despawn
           despawnTimers[i] = setTimeout(() => {
             frozenGroups[i].visible = false;
             if (activeContent === contents[i]) {
@@ -482,11 +485,11 @@
           }, 3000);
           return;
         }
-        // World-locked: frozenGroup stays visible at its last position
+        // World-locked: frozenGroup stays visible at its frozen position.
         lockCamQuat = camera.quaternion.clone();
         lockDevQuat = null;
         startOrientationTracking();
-        scanHint.textContent = 'Walk around — scan marker to re-anchor';
+        scanHint.textContent = 'Walk around — content anchored in space';
         scanHint.classList.remove('hidden');
       };
     });
@@ -525,18 +528,6 @@
 
     const _deltaQuat = new THREE.Quaternion();
     renderer.setAnimationLoop(() => {
-      // Sync frozenGroup transform with live marker while marker is visible.
-      // anchor.group is updated by MindAR each frame; we mirror it into frozenGroup
-      // so that when the marker disappears frozenGroup stays at the last known pose.
-      anchors.forEach((anchor, i) => {
-        if (markerVisibles[i]) {
-          anchor.group.updateWorldMatrix(true, false);
-          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
-          frozenGroups[i].position.copy(_pos);
-          frozenGroups[i].quaternion.copy(_quat);
-          frozenGroups[i].scale.copy(_scl);
-        }
-      });
       // Gyroscope camera rotation when world-locked and marker lost
       if (lockCamQuat && lockDevQuat) {
         _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
