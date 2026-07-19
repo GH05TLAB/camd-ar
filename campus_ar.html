@@ -136,8 +136,8 @@
   const worldLocked      = [false, false, false];
   let orientPermGranted  = false;
   let devOrientActive    = false;
-  let lockCamQuat        = null;         // camera quat at moment of marker loss
-  let lockOrientQuat     = null;         // absolute device orientation at marker loss
+  let lockCamQuat        = null;         // camera quat at moment of first marker detection
+  let lockOrientQuat     = null;         // device orientation at first marker detection
   const currOrientQuat   = new THREE.Quaternion();
   let orientReady        = false;        // received at least one deviceorientation event
   const _deltaQuat       = new THREE.Quaternion();
@@ -420,9 +420,13 @@
           frozenGroups[i].quaternion.copy(_quat);
           frozenGroups[i].scale.copy(_scl);
 
-          lockCamQuat = null;
-          lockOrientQuat = null;
-          startOrientTracking(); // warm up before marker is lost
+          // Reference orientation set HERE at detection time — same moment the
+          // frozenGroup is positioned. Camera is identity (MindAR default).
+          // When user later returns to this same physical direction, camera
+          // returns to identity and content appears at its original position.
+          lockCamQuat    = camera.quaternion.clone();
+          lockOrientQuat = orientReady ? currOrientQuat.clone() : null;
+          startOrientTracking();
         } else {
           // Marker re-appeared: content is already world-locked, don't reposition.
           frozenGroups[i].visible = true;
@@ -450,11 +454,8 @@
           return;
         }
 
-        // World-locked: snapshot camera and device orientation at this moment.
-        // The animation loop applies the orientation delta each frame so content
-        // appears stationary in physical space as the user rotates the phone.
-        lockCamQuat    = camera.quaternion.clone();
-        lockOrientQuat = orientReady ? currOrientQuat.clone() : null;
+        // Reference was already set at detection time — don't override.
+        // Just ensure orientation tracking is running and show the hint.
         startOrientTracking();
         scanHint.textContent = 'Content anchored — move around freely';
         scanHint.classList.remove('hidden');
