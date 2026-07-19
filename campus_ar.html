@@ -125,70 +125,59 @@
   stopBtn.addEventListener('click',  stopAR);
 
   // ══════════════════════════════════════════════════════════════
-  //  GYROSCOPE WORLD-ANCHOR STATE
+  //  DEVICE ORIENTATION WORLD-ANCHOR STATE
   // ══════════════════════════════════════════════════════════════
 
-  // -90° around X: maps device-frame rotation axis → Three.js camera space
-  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  // Standard Three.js formula: aligns device frame to Three.js camera space.
+  // Same constant used by THREE.DeviceOrientationControls.
+  const QUAT_CAM_ALIGN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  const D2R = Math.PI / 180;
 
-  const worldLocked     = [false, false, false]; // has each anchor been placed?
-  let motionPermGranted = false;
-  let devMotionActive   = false;
-  let lockCamQuat       = null; // camera quat at moment of marker loss
-  let lockDevQuat       = null; // inverse of currDevQuat at first gyro event after lock
-  const currDevQuat     = new THREE.Quaternion();
-  let gyroLastTime      = null;
-  const _gyroAxis       = new THREE.Vector3();
-  const _gyroDeltaQ     = new THREE.Quaternion();
-  const _deltaQuat      = new THREE.Quaternion();
+  const worldLocked      = [false, false, false];
+  let orientPermGranted  = false;
+  let devOrientActive    = false;
+  let lockCamQuat        = null;         // camera quat at moment of marker loss
+  let lockOrientQuat     = null;         // absolute device orientation at marker loss
+  const currOrientQuat   = new THREE.Quaternion();
+  let orientReady        = false;        // received at least one deviceorientation event
+  const _deltaQuat       = new THREE.Quaternion();
+  const _lockInvQuat     = new THREE.Quaternion();
   const _pos  = new THREE.Vector3();
   const _quat = new THREE.Quaternion();
   const _scl  = new THREE.Vector3();
 
-  function onDeviceMotion(e) {
-    const rr = e.rotationRate;
-    if (!rr) return;
-    // Individual axes can be null on budget Android devices
-    const beta  = rr.beta  ?? 0;
-    const alpha = rr.alpha ?? 0;
-    const gamma = rr.gamma ?? 0;
-    if (beta === 0 && alpha === 0 && gamma === 0) return;
-
-    const now = performance.now();
-    if (gyroLastTime === null) { gyroLastTime = now; return; }
-    const dt = Math.min((now - gyroLastTime) / 1000, 0.05);
-    gyroLastTime = now;
-    if (dt < 0.001) return;
-
-    const r = Math.PI / 180;
-    // rotationRate (deg/s): beta=pitch, alpha=roll, gamma=yaw in device frame.
-    // After applyQuaternion(QUAT_SCREEN): camera X=pitch, Y=yaw, Z=roll.
-    _gyroAxis.set(
-       beta  * r * dt,
-      -alpha * r * dt,
-       gamma * r * dt
-    );
-    const angle = _gyroAxis.length();
-    if (angle < 0.00001) return;
-    _gyroAxis.normalize().applyQuaternion(QUAT_SCREEN);
-    _gyroDeltaQ.setFromAxisAngle(_gyroAxis, angle);
-    currDevQuat.multiply(_gyroDeltaQ).normalize();
-    if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
+  // Three.js DeviceOrientationControls formula: absolute orientation → camera quaternion.
+  // Uses device's built-in sensor fusion (Kalman filter) — no integration drift.
+  function orientToQuat(alpha, beta, gamma) {
+    const q = new THREE.Quaternion();
+    q.setFromEuler(new THREE.Euler(beta * D2R, alpha * D2R, -gamma * D2R, 'YXZ'));
+    q.multiply(QUAT_CAM_ALIGN);
+    return q;
   }
 
-  function startGyro() {
-    if (devMotionActive || !motionPermGranted) return;
-    currDevQuat.identity();
-    gyroLastTime = null;
-    window.addEventListener('devicemotion', onDeviceMotion);
-    devMotionActive = true;
+  function onDeviceOrientation(e) {
+    if (e.alpha === null || e.beta === null || e.gamma === null) return;
+    currOrientQuat.copy(orientToQuat(e.alpha, e.beta, e.gamma));
+    if (!orientReady) {
+      // First event after tracking started: if a lock is pending, snapshot it now.
+      if (lockCamQuat && !lockOrientQuat) {
+        lockOrientQuat = currOrientQuat.clone();
+      }
+      orientReady = true;
+    }
   }
 
-  function stopGyro() {
-    window.removeEventListener('devicemotion', onDeviceMotion);
-    devMotionActive = false;
-    gyroLastTime    = null;
-    currDevQuat.identity();
+  function startOrientTracking() {
+    if (devOrientActive || !orientPermGranted) return;
+    window.addEventListener('deviceorientation', onDeviceOrientation);
+    devOrientActive = true;
+  }
+
+  function stopOrientTracking() {
+    window.removeEventListener('deviceorientation', onDeviceOrientation);
+    devOrientActive = false;
+    orientReady    = false;
+    lockOrientQuat = null;
   }
 
 
@@ -361,15 +350,14 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
-    // iOS 13+: DeviceMotionEvent permission must be requested from a user-gesture
-    // context (button click). Requesting it later (from MindAR callbacks or timers)
-    // silently returns 'denied'. Android/desktop have no permission gate.
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
-      motionPermGranted = (perm === 'granted');
+    // iOS 13+: DeviceOrientationEvent permission must come from a user-gesture context.
+    // Android/desktop grant access without a prompt.
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+      orientPermGranted = (perm === 'granted');
     } else {
-      motionPermGranted = true;
+      orientPermGranted = true;
     }
 
     splash.style.display = 'none';
@@ -433,8 +421,8 @@
           frozenGroups[i].scale.copy(_scl);
 
           lockCamQuat = null;
-          lockDevQuat = null;
-          startGyro(); // warm up gyroscope before the marker is lost
+          lockOrientQuat = null;
+          startOrientTracking(); // warm up before marker is lost
         } else {
           // Marker re-appeared: content is already world-locked, don't reposition.
           frozenGroups[i].visible = true;
@@ -462,12 +450,12 @@
           return;
         }
 
-        // World-locked: freeze the camera orientation at this exact moment.
-        // The animation loop will apply gyroscope deltas from here on so that
-        // the content appears anchored as the user rotates the phone.
-        lockCamQuat = camera.quaternion.clone();
-        lockDevQuat = null; // set on first gyro event after this point
-        startGyro();
+        // World-locked: snapshot camera and device orientation at this moment.
+        // The animation loop applies the orientation delta each frame so content
+        // appears stationary in physical space as the user rotates the phone.
+        lockCamQuat    = camera.quaternion.clone();
+        lockOrientQuat = orientReady ? currOrientQuat.clone() : null;
+        startOrientTracking();
         scanHint.textContent = 'Content anchored — move around freely';
         scanHint.classList.remove('hidden');
       };
@@ -504,10 +492,13 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
-      // When world-locked and marker is lost: apply gyroscope delta to camera
-      // so the frozen content appears anchored in physical space.
-      if (lockCamQuat && lockDevQuat) {
-        _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
+      // Apply device-orientation delta to camera so frozen content appears
+      // anchored in physical space as the user rotates the phone.
+      // delta = inv(orientAtLoss) * orientNow — computed fresh every frame,
+      // no integration drift.
+      if (lockCamQuat && lockOrientQuat && orientReady) {
+        _lockInvQuat.copy(lockOrientQuat).invert();
+        _deltaQuat.multiplyQuaternions(_lockInvQuat, currOrientQuat);
         camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
       }
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
@@ -516,10 +507,10 @@
   }
 
   async function stopAR() {
-    stopGyro();
+    stopOrientTracking();
     worldLocked.fill(false);
-    lockCamQuat = null;
-    lockDevQuat = null;
+    lockCamQuat    = null;
+    lockOrientQuat = null;
 
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
