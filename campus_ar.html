@@ -158,7 +158,13 @@
 
   function onDeviceMotion(e) {
     const rr = e.rotationRate;
-    if (!rr || rr.beta === null || rr.beta === undefined) return;
+    // Guard: rr may be null (some devices), or individual axes may be null on
+    // budget Android devices that expose a partial gyroscope implementation.
+    if (!rr) return;
+    const beta  = rr.beta  ?? 0;
+    const alpha = rr.alpha ?? 0;
+    const gamma = rr.gamma ?? 0;
+    if (beta === 0 && alpha === 0 && gamma === 0) return;
 
     const now = performance.now();
     if (gyroLastTime === null) { gyroLastTime = now; return; }
@@ -174,9 +180,9 @@
     // Input vector is pre-conditioned so that after applyQuaternion(QUAT_SCREEN):
     //   camera X = pitch, camera Y = yaw, camera Z = roll
     _gyroAxis.set(
-       rr.beta  * r * dt,   // → camera X (pitch)
-      -rr.alpha * r * dt,   // → camera Y (yaw)
-       rr.gamma * r * dt    // → camera Z (roll)
+       beta  * r * dt,   // → camera X (pitch)
+      -alpha * r * dt,   // → camera Y (yaw)
+       gamma * r * dt    // → camera Z (roll)
     );
     const angle = _gyroAxis.length();
     if (angle < 0.00001) return;
