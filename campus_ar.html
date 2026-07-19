@@ -146,9 +146,10 @@
   // -90° around X: converts device-space rotation axis to Three.js camera space
   const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-  let devOrientActive = false;
-  let lockCamQuat     = null;
-  let lockDevQuat     = null;
+  let devOrientActive   = false;
+  let motionPermGranted = false; // pre-requested from user gesture in startAR()
+  let lockCamQuat       = null;
+  let lockDevQuat       = null;
   // Accumulated gyroscope rotation in Three.js camera space (identity = reference)
   const currDevQuat   = new THREE.Quaternion();
   let gyroLastTime    = null;
@@ -188,14 +189,8 @@
     if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
   }
 
-  async function startOrientationTracking() {
-    if (devOrientActive) return;
-    // iOS 13+ requires explicit permission for DeviceMotionEvent
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
-      if (perm !== 'granted') return;
-    }
+  function startOrientationTracking() {
+    if (devOrientActive || !motionPermGranted) return;
     currDevQuat.identity();
     gyroLastTime = null;
     window.addEventListener('devicemotion', onDeviceMotion);
@@ -394,6 +389,18 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
+    // Request gyroscope permission HERE — we are inside a user-gesture callback
+    // (Start button click).  iOS 13+ silently denies DeviceMotionEvent.requestPermission
+    // when called from any non-gesture context (timers, sensor callbacks, etc.).
+    // This was the primary reason the gyroscope never activated on iPhone.
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
+      motionPermGranted = (perm === 'granted');
+    } else {
+      motionPermGranted = true; // Android / desktop: no permission gate
+    }
+
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
@@ -463,6 +470,10 @@
           camera.quaternion.set(0, 0, 0, 1);
           lockCamQuat = null;
           lockDevQuat = null;
+          // Start gyroscope NOW (permission already granted in startAR).
+          // Warming it up before marker loss means lockDevQuat will be set
+          // immediately when the marker leaves the frame, with no cold-start gap.
+          startOrientationTracking();
           lockBadge.classList.add('active');
         }
         // Already world-locked: content stays frozen, camera/gyro unchanged.
