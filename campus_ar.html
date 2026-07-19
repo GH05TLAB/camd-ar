@@ -143,8 +143,13 @@
 
   const worldLocked = [false, false, false]; // per anchor index
 
-  // Quaternion that corrects device orientation axes to camera axes
+  // Quaternion that corrects device orientation axes to camera axes (standard
+  // Three.js DeviceOrientationControls: -90° around X so camera looks out the
+  // back of the device rather than the top).
   const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  // Reusable helpers for screen-orientation compensation
+  const _screenAxis = new THREE.Vector3(0, 0, 1);
+  const _screenQuat = new THREE.Quaternion();
 
   let devOrientActive = false;
   let lockCamQuat     = null;   // camera quat at the moment of marker loss
@@ -152,10 +157,16 @@
   const currDevQuat   = new THREE.Quaternion();
 
   function onDeviceOrient(e) {
-    if (!e.alpha) return;
+    // alpha can legitimately be 0 (pointing north) — check for null/undefined only
+    if (e.alpha === null || e.alpha === undefined) return;
     const r = Math.PI / 180;
+    // Screen orientation angle (0° portrait, 90° landscape-left, etc.)
+    const screenAngle = (window.screen?.orientation?.angle ?? 0) * r;
     const euler = new THREE.Euler(e.beta * r, e.alpha * r, -e.gamma * r, 'YXZ');
-    currDevQuat.setFromEuler(euler).multiply(QUAT_SCREEN);
+    currDevQuat
+      .setFromEuler(euler)
+      .multiply(QUAT_SCREEN)
+      .multiply(_screenQuat.setFromAxisAngle(_screenAxis, -screenAngle));
     // Capture reference on first event after lock
     if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
   }
@@ -426,7 +437,9 @@
           worldLocked[i] = true;
           lockBadge.classList.add('active');
         }
-        // Marker visible — disable gyroscope override, MindAR drives position
+        // Marker visible — reset camera to identity so MindAR drives position
+        // cleanly, without leftover rotation from a previous gyroscope session
+        camera.quaternion.set(0, 0, 0, 1);
         lockCamQuat = null;
         lockDevQuat = null;
 
