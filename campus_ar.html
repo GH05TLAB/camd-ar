@@ -143,43 +143,62 @@
 
   const worldLocked = [false, false, false]; // per anchor index
 
-  // Quaternion that corrects device orientation axes to camera axes (standard
-  // Three.js DeviceOrientationControls: -90° around X so camera looks out the
-  // back of the device rather than the top).
+  // -90° around X: converts device-space rotation axis to Three.js camera space
   const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-  // Reusable helpers for screen-orientation compensation
-  const _screenAxis = new THREE.Vector3(0, 0, 1);
-  const _screenQuat = new THREE.Quaternion();
 
   let devOrientActive = false;
-  let lockCamQuat     = null;   // camera quat at the moment of marker loss
-  let lockDevQuat     = null;   // device orientation quat at that same moment
+  let lockCamQuat     = null;
+  let lockDevQuat     = null;
+  // Accumulated gyroscope rotation in Three.js camera space (identity = reference)
   const currDevQuat   = new THREE.Quaternion();
+  let gyroLastTime    = null;
+  const _gyroAxis     = new THREE.Vector3();
+  const _gyroDeltaQ   = new THREE.Quaternion();
 
-  function onDeviceOrient(e) {
-    // alpha can legitimately be 0 (pointing north) — check for null/undefined only
-    if (e.alpha === null || e.alpha === undefined) return;
+  function onDeviceMotion(e) {
+    const rr = e.rotationRate;
+    if (!rr || rr.beta === null || rr.beta === undefined) return;
+
+    const now = performance.now();
+    if (gyroLastTime === null) { gyroLastTime = now; return; }
+    const dt = Math.min((now - gyroLastTime) / 1000, 0.05);
+    gyroLastTime = now;
+    if (dt < 0.001) return;
+
     const r = Math.PI / 180;
-    // Screen orientation angle (0° portrait, 90° landscape-left, etc.)
-    const screenAngle = (window.screen?.orientation?.angle ?? 0) * r;
-    const euler = new THREE.Euler(e.beta * r, e.alpha * r, -e.gamma * r, 'YXZ');
-    currDevQuat
-      .setFromEuler(euler)
-      .multiply(QUAT_SCREEN)
-      .multiply(_screenQuat.setFromAxisAngle(_screenAxis, -screenAngle));
-    // Capture reference on first event after lock
+    // rotationRate axes (device frame, deg/sec):
+    //   beta  = around device X (pitch — tilt forward/back)
+    //   alpha = around device Z (roll  — spin screen normal)
+    //   gamma = around device Y (yaw   — turn left/right in portrait)
+    // Input vector is pre-conditioned so that after applyQuaternion(QUAT_SCREEN):
+    //   camera X = pitch, camera Y = yaw, camera Z = roll
+    _gyroAxis.set(
+       rr.beta  * r * dt,   // → camera X (pitch)
+      -rr.alpha * r * dt,   // → camera Y (yaw)
+       rr.gamma * r * dt    // → camera Z (roll)
+    );
+    const angle = _gyroAxis.length();
+    if (angle < 0.00001) return;
+
+    _gyroAxis.normalize().applyQuaternion(QUAT_SCREEN);
+    _gyroDeltaQ.setFromAxisAngle(_gyroAxis, angle);
+    // Right-multiply = local frame integration; normalize prevents float drift
+    currDevQuat.multiply(_gyroDeltaQ).normalize();
+
     if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
   }
 
   async function startOrientationTracking() {
     if (devOrientActive) return;
-    // iOS 13+ requires explicit permission
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+    // iOS 13+ requires explicit permission for DeviceMotionEvent
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
       if (perm !== 'granted') return;
     }
-    window.addEventListener('deviceorientation', onDeviceOrient);
+    currDevQuat.identity();
+    gyroLastTime = null;
+    window.addEventListener('devicemotion', onDeviceMotion);
     devOrientActive = true;
   }
 
@@ -538,8 +557,10 @@
     worldLocked.fill(false);
     lockCamQuat = null;
     lockDevQuat = null;
-    window.removeEventListener('deviceorientation', onDeviceOrient);
+    window.removeEventListener('devicemotion', onDeviceMotion);
     devOrientActive = false;
+    gyroLastTime = null;
+    currDevQuat.identity();
     lockBadge.classList.remove('active');
     scanHint.textContent = 'Point camera at any CAMD marker';
 
