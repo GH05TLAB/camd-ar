@@ -108,24 +108,88 @@
   import { MindARThree } from 'mindar-image-three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-  // 3 distinct marker images compiled into targets.mind (index 0/1/2).
-  // Each anchor tracks a different physical marker and shows its own content.
-  // One shared QR code opens this page — no ?spot= parameter needed.
   const MARKER_FILE = './targets.mind';
 
   let mindarThree = null, clock = null;
 
-  const splash       = document.getElementById('splash');
-  const arContainer  = document.getElementById('ar-container');
-  const arUI         = document.getElementById('ar-ui');
+  const splash         = document.getElementById('splash');
+  const arContainer    = document.getElementById('ar-container');
+  const arUI           = document.getElementById('ar-ui');
   const loadingOverlay = document.getElementById('loading-overlay');
-  const startBtn     = document.getElementById('start-btn');
-  const stopBtn      = document.getElementById('stop-btn');
-  const scanHint     = document.getElementById('scan-hint');
-  const scanRings    = document.getElementById('scan-rings');
-  const spotLabel    = document.getElementById('spot-label');
+  const startBtn       = document.getElementById('start-btn');
+  const stopBtn        = document.getElementById('stop-btn');
+  const scanHint       = document.getElementById('scan-hint');
+  const scanRings      = document.getElementById('scan-rings');
+  const spotLabel      = document.getElementById('spot-label');
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
+
+  // ══════════════════════════════════════════════════════════════
+  //  GYROSCOPE WORLD-ANCHOR STATE
+  // ══════════════════════════════════════════════════════════════
+
+  // -90° around X: maps device-frame rotation axis → Three.js camera space
+  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+  const worldLocked     = [false, false, false]; // has each anchor been placed?
+  let motionPermGranted = false;
+  let devMotionActive   = false;
+  let lockCamQuat       = null; // camera quat at moment of marker loss
+  let lockDevQuat       = null; // inverse of currDevQuat at first gyro event after lock
+  const currDevQuat     = new THREE.Quaternion();
+  let gyroLastTime      = null;
+  const _gyroAxis       = new THREE.Vector3();
+  const _gyroDeltaQ     = new THREE.Quaternion();
+  const _deltaQuat      = new THREE.Quaternion();
+  const _pos  = new THREE.Vector3();
+  const _quat = new THREE.Quaternion();
+  const _scl  = new THREE.Vector3();
+
+  function onDeviceMotion(e) {
+    const rr = e.rotationRate;
+    if (!rr) return;
+    // Individual axes can be null on budget Android devices
+    const beta  = rr.beta  ?? 0;
+    const alpha = rr.alpha ?? 0;
+    const gamma = rr.gamma ?? 0;
+    if (beta === 0 && alpha === 0 && gamma === 0) return;
+
+    const now = performance.now();
+    if (gyroLastTime === null) { gyroLastTime = now; return; }
+    const dt = Math.min((now - gyroLastTime) / 1000, 0.05);
+    gyroLastTime = now;
+    if (dt < 0.001) return;
+
+    const r = Math.PI / 180;
+    // rotationRate (deg/s): beta=pitch, alpha=roll, gamma=yaw in device frame.
+    // After applyQuaternion(QUAT_SCREEN): camera X=pitch, Y=yaw, Z=roll.
+    _gyroAxis.set(
+       beta  * r * dt,
+      -alpha * r * dt,
+       gamma * r * dt
+    );
+    const angle = _gyroAxis.length();
+    if (angle < 0.00001) return;
+    _gyroAxis.normalize().applyQuaternion(QUAT_SCREEN);
+    _gyroDeltaQ.setFromAxisAngle(_gyroAxis, angle);
+    currDevQuat.multiply(_gyroDeltaQ).normalize();
+    if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
+  }
+
+  function startGyro() {
+    if (devMotionActive || !motionPermGranted) return;
+    currDevQuat.identity();
+    gyroLastTime = null;
+    window.addEventListener('devicemotion', onDeviceMotion);
+    devMotionActive = true;
+  }
+
+  function stopGyro() {
+    window.removeEventListener('devicemotion', onDeviceMotion);
+    devMotionActive = false;
+    gyroLastTime    = null;
+    currDevQuat.identity();
+  }
 
 
 
@@ -185,92 +249,70 @@
     });
   }
 
-  function buildAerialCompanion(anchor) {
+  // Builders receive a THREE.Group (frozenGroup) — NOT an anchor.
+  // Content is added to the scene root via frozenGroup, so MindAR's internal
+  // anchor.group.visible=false on target loss cannot hide it.
+
+  function buildAerialCompanion(parent) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parent.add(g);
     g.userData.type = 'aerial';
-
     const loader = new GLTFLoader();
-    loader.load(
-      './bee/bee.glb',
-      (gltf) => {
-        const model = gltf.scene;
-
-        // Auto-scale: fit inside ~3.6 units
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale  = 1.8 / maxDim;
-        model.scale.setScalar(scale);
-
-        // Center model at origin
-        box.setFromObject(model);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        model.position.sub(center);
-
-        applyBeeTextures(model);
-
-        model.userData.isAerial = true;
-        g.add(model);
-      },
-      undefined,
-      (err) => console.error('GLB load failed:', err)
-    );
-
+    loader.load('./bee/bee.glb', (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      model.scale.setScalar(1.8 / maxDim);
+      box.setFromObject(model);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      model.position.sub(center);
+      applyBeeTextures(model);
+      model.userData.isAerial = true;
+      g.add(model);
+    }, undefined, (err) => console.error('GLB load failed:', err));
     return g;
   }
 
-  // ── Spot 1 · BOSTON002TW — Honeybee GLB ─────────────────────
-  function buildBoston002TW(anchor) {
+  function buildBoston002TW(parent) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parent.add(g);
     const loader = new GLTFLoader();
-    loader.load(
-      './honeybee.glb',
-      (gltf) => {
-        const model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        model.scale.setScalar(1.8 / maxDim);
-        box.setFromObject(model);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        model.position.sub(center);
-        g.add(model);
-      },
-      undefined,
-      (err) => console.error('honeybee GLB load failed:', err)
-    );
+    loader.load('./honeybee.glb', (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      model.scale.setScalar(1.8 / maxDim);
+      box.setFromObject(model);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      model.position.sub(center);
+      g.add(model);
+    }, undefined, (err) => console.error('honeybee GLB load failed:', err));
     return g;
   }
 
-  // ── Spot 2 · BOSTON003TW — DIY VR Implant GLB ───────────────
-  function buildBoston003TW(anchor) {
+  function buildBoston003TW(parent) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parent.add(g);
     const loader = new GLTFLoader();
-    loader.load(
-      './diy_vr_implant.glb',
-      (gltf) => {
-        const model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        model.scale.setScalar(3.6 / maxDim);
-        box.setFromObject(model);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        model.position.sub(center);
-        g.add(model);
-      },
-      undefined,
-      (err) => console.error('diy_vr_implant GLB load failed:', err)
-    );
+    loader.load('./diy_vr_implant.glb', (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      model.scale.setScalar(3.6 / maxDim);
+      box.setFromObject(model);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      model.position.sub(center);
+      g.add(model);
+    }, undefined, (err) => console.error('diy_vr_implant GLB load failed:', err));
     return g;
   }
 
@@ -319,12 +361,22 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
+    // iOS 13+: DeviceMotionEvent permission must be requested from a user-gesture
+    // context (button click). Requesting it later (from MindAR callbacks or timers)
+    // silently returns 'denied'. Android/desktop have no permission gate.
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') {
+      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
+      motionPermGranted = (perm === 'granted');
+    } else {
+      motionPermGranted = true;
+    }
+
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
     arUI.style.display = 'block';
 
-    // Fetch weather in parallel with MindAR init (takes ~1s vs MindAR's 5-15s)
     const weatherPromise = getWeatherLighting();
 
     mindarThree = new MindARThree({
@@ -337,7 +389,6 @@
 
     const { renderer, scene, camera } = mindarThree;
 
-    // Default neutral lighting — replaced by weather result after mindarThree.start()
     const ambient = new THREE.AmbientLight(0xffffff, 0.4);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(2, 4, 3);
@@ -345,42 +396,83 @@
     fill.position.set(-2, 1, -2);
     scene.add(ambient, dir, fill);
 
-    // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
-    // GLB models are lazy-loaded on first detection to speed up initial startup.
-    const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
-    const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
-    const contents   = [null, null, null];
+    const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
+    const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
+    const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
+    const contents  = [null, null, null];
+
+    // frozenGroups live at the scene root, outside any anchor.group hierarchy.
+    // MindAR calls anchor.group.visible = false on target loss — frozenGroups
+    // are unaffected, so content stays visible after the marker leaves the camera.
+    const frozenGroups = [0, 1, 2].map(() => {
+      const g = new THREE.Group();
+      g.visible = false;
+      scene.add(g);
+      return g;
+    });
+
     let activeContent = null;
 
     anchors.forEach((anchor, i) => {
       let despawnTimer = null;
+
       anchor.onTargetFound = () => {
         if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
-        // Lazy-load model on first detection
-        if (!contents[i]) contents[i] = builders[i](anchor);
-        anchor.group.visible = true;
-        activeContent = contents[i];
+
+        if (!worldLocked[i]) {
+          // First detection: place content at the marker's world transform, lock it.
+          worldLocked[i] = true;
+          if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
+          frozenGroups[i].visible = true;
+          activeContent = contents[i];
+
+          anchor.group.updateWorldMatrix(true, false);
+          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
+          frozenGroups[i].position.copy(_pos);
+          frozenGroups[i].quaternion.copy(_quat);
+          frozenGroups[i].scale.copy(_scl);
+
+          lockCamQuat = null;
+          lockDevQuat = null;
+          startGyro(); // warm up gyroscope before the marker is lost
+        } else {
+          // Marker re-appeared: content is already world-locked, don't reposition.
+          frozenGroups[i].visible = true;
+          activeContent = contents[i];
+        }
+
         scanHint.classList.add('hidden');
         scanRings.classList.add('hidden');
-        spotLabel.textContent = '📍 ' + spotNames[i];
+        spotLabel.textContent = '⚓ ' + spotNames[i];
         spotLabel.classList.add('visible');
       };
+
       anchor.onTargetLost = () => {
-        if (despawnTimer) clearTimeout(despawnTimer);
-        despawnTimer = setTimeout(() => {
-          anchor.group.visible = false;
-          if (activeContent === contents[i]) {
-            activeContent = null;
-            spotLabel.classList.remove('visible');
-            scanHint.classList.remove('hidden');
-            scanRings.classList.remove('hidden');
-          }
-        }, 3000);
+        if (!worldLocked[i]) {
+          // Not yet placed — hide after grace period as before.
+          despawnTimer = setTimeout(() => {
+            frozenGroups[i].visible = false;
+            if (activeContent === contents[i]) {
+              activeContent = null;
+              spotLabel.classList.remove('visible');
+              scanHint.classList.remove('hidden');
+              scanRings.classList.remove('hidden');
+            }
+          }, 3000);
+          return;
+        }
+
+        // World-locked: freeze the camera orientation at this exact moment.
+        // The animation loop will apply gyroscope deltas from here on so that
+        // the content appears anchored as the user rotates the phone.
+        lockCamQuat = camera.quaternion.clone();
+        lockDevQuat = null; // set on first gyro event after this point
+        startGyro();
+        scanHint.textContent = 'Content anchored — move around freely';
+        scanHint.classList.remove('hidden');
       };
     });
 
-    // Touch rotation — rotates whichever content is currently visible
     let touchStart = null;
     const onTouchStart = (e) => {
       if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX };
@@ -403,7 +495,6 @@
       stopAR(); return;
     }
 
-    // Apply weather lighting — should already be resolved since MindAR took longer
     const lx = await weatherPromise;
     ambient.color.setHex(lx.aC); ambient.intensity = lx.aI;
     dir.color.setHex(lx.dC);    dir.intensity = lx.dI;    dir.position.set(...lx.dP);
@@ -413,12 +504,23 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
+      // When world-locked and marker is lost: apply gyroscope delta to camera
+      // so the frozen content appears anchored in physical space.
+      if (lockCamQuat && lockDevQuat) {
+        _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
+        camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
+      }
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
   }
 
   async function stopAR() {
+    stopGyro();
+    worldLocked.fill(false);
+    lockCamQuat = null;
+    lockDevQuat = null;
+
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
       mindarThree.renderer.setAnimationLoop(null);
@@ -428,6 +530,7 @@
     arContainer.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
+    scanHint.textContent = 'Point camera at any CAMD marker';
     scanHint.classList.remove('hidden');
     scanRings.classList.remove('hidden');
     spotLabel.classList.remove('visible');
