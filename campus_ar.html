@@ -45,8 +45,6 @@
     #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
     #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
     #scan-hint.hidden { opacity: 0; }
-    #world-lock-badge { position: absolute; bottom: 5.5rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; background: rgba(200,16,46,0.85); padding: 0.3rem 0.9rem; border-radius: 2px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
-    #world-lock-badge.active { opacity: 1; }
     .scan-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; animation: pulse-ring 2s ease-out infinite; }
     .scan-ring:nth-child(2) { animation-delay: 0.7s; }
     .scan-ring:nth-child(3) { animation-delay: 1.4s; }
@@ -101,7 +99,6 @@
       <button id="stop-btn">✕ Exit</button>
     </div>
     <div id="spot-label"></div>
-    <div id="world-lock-badge">&#x2693; Anchored in space</div>
     <div id="scan-rings"><div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div></div>
     <div id="scan-hint">Point camera at any CAMD marker</div>
   </div>
@@ -127,81 +124,8 @@
   const scanHint     = document.getElementById('scan-hint');
   const scanRings    = document.getElementById('scan-rings');
   const spotLabel    = document.getElementById('spot-label');
-  const lockBadge    = document.getElementById('world-lock-badge');
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
-
-  // ══════════════════════════════════════════════════════════════
-  //  WORLD ANCHOR — device-orientation-based camera rotation
-  //  When a marker is detected for the first time the content is
-  //  "locked" in AR space.  The gyroscope then drives the camera
-  //  so the user can look/rotate around the model even after the
-  //  printed marker leaves the frame.
-  //  Limitation: translational 6-DOF (physically walking around)
-  //  requires WebXR + ARCore which is Chrome-Android-only.
-  // ══════════════════════════════════════════════════════════════
-
-  const worldLocked = [false, false, false]; // per anchor index
-
-  // -90° around X: converts device-space rotation axis to Three.js camera space
-  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-
-  let devOrientActive   = false;
-  let motionPermGranted = false; // pre-requested from user gesture in startAR()
-  let lockCamQuat       = null;
-  let lockDevQuat       = null;
-  // Accumulated gyroscope rotation in Three.js camera space (identity = reference)
-  const currDevQuat   = new THREE.Quaternion();
-  let gyroLastTime    = null;
-  const _gyroAxis     = new THREE.Vector3();
-  const _gyroDeltaQ   = new THREE.Quaternion();
-
-  function onDeviceMotion(e) {
-    const rr = e.rotationRate;
-    // Guard: rr may be null (some devices), or individual axes may be null on
-    // budget Android devices that expose a partial gyroscope implementation.
-    if (!rr) return;
-    const beta  = rr.beta  ?? 0;
-    const alpha = rr.alpha ?? 0;
-    const gamma = rr.gamma ?? 0;
-    if (beta === 0 && alpha === 0 && gamma === 0) return;
-
-    const now = performance.now();
-    if (gyroLastTime === null) { gyroLastTime = now; return; }
-    const dt = Math.min((now - gyroLastTime) / 1000, 0.05);
-    gyroLastTime = now;
-    if (dt < 0.001) return;
-
-    const r = Math.PI / 180;
-    // rotationRate axes (device frame, deg/sec):
-    //   beta  = around device X (pitch — tilt forward/back)
-    //   alpha = around device Z (roll  — spin screen normal)
-    //   gamma = around device Y (yaw   — turn left/right in portrait)
-    // Input vector is pre-conditioned so that after applyQuaternion(QUAT_SCREEN):
-    //   camera X = pitch, camera Y = yaw, camera Z = roll
-    _gyroAxis.set(
-       beta  * r * dt,   // → camera X (pitch)
-      -alpha * r * dt,   // → camera Y (yaw)
-       gamma * r * dt    // → camera Z (roll)
-    );
-    const angle = _gyroAxis.length();
-    if (angle < 0.00001) return;
-
-    _gyroAxis.normalize().applyQuaternion(QUAT_SCREEN);
-    _gyroDeltaQ.setFromAxisAngle(_gyroAxis, angle);
-    // Right-multiply = local frame integration; normalize prevents float drift
-    currDevQuat.multiply(_gyroDeltaQ).normalize();
-
-    if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
-  }
-
-  function startOrientationTracking() {
-    if (devOrientActive || !motionPermGranted) return;
-    currDevQuat.identity();
-    gyroLastTime = null;
-    window.addEventListener('devicemotion', onDeviceMotion);
-    devOrientActive = true;
-  }
 
 
 
@@ -261,9 +185,9 @@
     });
   }
 
-  function buildAerialCompanion(parentGroup) {
+  function buildAerialCompanion(anchor) {
     const g = new THREE.Group();
-    parentGroup.add(g);
+    anchor.group.add(g);
     g.userData.type = 'aerial';
 
     const loader = new GLTFLoader();
@@ -299,9 +223,9 @@
   }
 
   // ── Spot 1 · BOSTON002TW — Honeybee GLB ─────────────────────
-  function buildBoston002TW(parentGroup) {
+  function buildBoston002TW(anchor) {
     const g = new THREE.Group();
-    parentGroup.add(g);
+    anchor.group.add(g);
     const loader = new GLTFLoader();
     loader.load(
       './honeybee.glb',
@@ -325,9 +249,9 @@
   }
 
   // ── Spot 2 · BOSTON003TW — DIY VR Implant GLB ───────────────
-  function buildBoston003TW(parentGroup) {
+  function buildBoston003TW(anchor) {
     const g = new THREE.Group();
-    parentGroup.add(g);
+    anchor.group.add(g);
     const loader = new GLTFLoader();
     loader.load(
       './diy_vr_implant.glb',
@@ -395,18 +319,6 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
-    // Request gyroscope permission HERE — we are inside a user-gesture callback
-    // (Start button click).  iOS 13+ silently denies DeviceMotionEvent.requestPermission
-    // when called from any non-gesture context (timers, sensor callbacks, etc.).
-    // This was the primary reason the gyroscope never activated on iPhone.
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-      const perm = await DeviceMotionEvent.requestPermission().catch(() => 'denied');
-      motionPermGranted = (perm === 'granted');
-    } else {
-      motionPermGranted = true; // Android / desktop: no permission gate
-    }
-
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
@@ -435,79 +347,36 @@
 
     // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
     // GLB models are lazy-loaded on first detection to speed up initial startup.
-    // Content lives in frozenGroups (scene root) — NOT inside anchor.group.
-    // This is critical: MindAR internally sets anchor.group.visible=false on target
-    // loss, which would hide our content. By keeping content outside anchor.group
-    // we control visibility ourselves and can keep models visible after marker loss.
     const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
     const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
     const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
     const contents   = [null, null, null];
-    const frozenGroups = anchors.map(() => {
-      const fg = new THREE.Group();
-      fg.visible = false;
-      scene.add(fg);
-      return fg;
-    });
-    const despawnTimers = [null, null, null];
-    // Reusable decompose targets
-    const _pos  = new THREE.Vector3();
-    const _quat = new THREE.Quaternion();
-    const _scl  = new THREE.Vector3();
     let activeContent = null;
 
     anchors.forEach((anchor, i) => {
+      let despawnTimer = null;
       anchor.onTargetFound = () => {
-        if (despawnTimers[i]) { clearTimeout(despawnTimers[i]); despawnTimers[i] = null; }
-        if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
-        frozenGroups[i].visible = true;
+        if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+        // Lazy-load model on first detection
+        if (!contents[i]) contents[i] = builders[i](anchor);
+        anchor.group.visible = true;
         activeContent = contents[i];
-
-        if (!worldLocked[i]) {
-          // First detection only: snapshot the marker's world pose and freeze it.
-          // Re-scanning the marker afterwards does nothing — the frozenGroup never
-          // moves again after this point (until the user exits AR).
-          worldLocked[i] = true;
-          anchor.group.updateWorldMatrix(true, false);
-          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
-          frozenGroups[i].position.copy(_pos);
-          frozenGroups[i].quaternion.copy(_quat);
-          frozenGroups[i].scale.copy(_scl);
-          camera.quaternion.set(0, 0, 0, 1);
-          lockCamQuat = null;
-          lockDevQuat = null;
-          // Start gyroscope NOW (permission already granted in startAR).
-          // Warming it up before marker loss means lockDevQuat will be set
-          // immediately when the marker leaves the frame, with no cold-start gap.
-          startOrientationTracking();
-          lockBadge.classList.add('active');
-        }
-        // Already world-locked: content stays frozen, camera/gyro unchanged.
-
         scanHint.classList.add('hidden');
         scanRings.classList.add('hidden');
-        spotLabel.textContent = '⚓ ' + spotNames[i];
+        spotLabel.textContent = '📍 ' + spotNames[i];
         spotLabel.classList.add('visible');
       };
       anchor.onTargetLost = () => {
-        if (!worldLocked[i]) {
-          despawnTimers[i] = setTimeout(() => {
-            frozenGroups[i].visible = false;
-            if (activeContent === contents[i]) {
-              activeContent = null;
-              spotLabel.classList.remove('visible');
-              scanHint.classList.remove('hidden');
-              scanRings.classList.remove('hidden');
-            }
-          }, 3000);
-          return;
-        }
-        // World-locked: frozenGroup stays visible at its frozen position.
-        lockCamQuat = camera.quaternion.clone();
-        lockDevQuat = null;
-        startOrientationTracking();
-        scanHint.textContent = 'Walk around — content anchored in space';
-        scanHint.classList.remove('hidden');
+        if (despawnTimer) clearTimeout(despawnTimer);
+        despawnTimer = setTimeout(() => {
+          anchor.group.visible = false;
+          if (activeContent === contents[i]) {
+            activeContent = null;
+            spotLabel.classList.remove('visible');
+            scanHint.classList.remove('hidden');
+            scanRings.classList.remove('hidden');
+          }
+        }, 3000);
       };
     });
 
@@ -543,13 +412,7 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
-    const _deltaQuat = new THREE.Quaternion();
     renderer.setAnimationLoop(() => {
-      // Gyroscope camera rotation when world-locked and marker lost
-      if (lockCamQuat && lockDevQuat) {
-        _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
-        camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
-      }
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
@@ -561,17 +424,6 @@
       mindarThree.renderer.setAnimationLoop(null);
       mindarThree = null;
     }
-    // Reset world-lock state
-    worldLocked.fill(false);
-    lockCamQuat = null;
-    lockDevQuat = null;
-    window.removeEventListener('devicemotion', onDeviceMotion);
-    devOrientActive = false;
-    gyroLastTime = null;
-    currDevQuat.identity();
-    lockBadge.classList.remove('active');
-    scanHint.textContent = 'Point camera at any CAMD marker';
-
     arContainer.innerHTML = '';
     arContainer.style.display = 'none';
     arUI.style.display = 'none';
