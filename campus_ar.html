@@ -230,9 +230,9 @@
     });
   }
 
-  function buildAerialCompanion(anchor) {
+  function buildAerialCompanion(parentGroup) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parentGroup.add(g);
     g.userData.type = 'aerial';
 
     const loader = new GLTFLoader();
@@ -268,9 +268,9 @@
   }
 
   // ── Spot 1 · BOSTON002TW — Honeybee GLB ─────────────────────
-  function buildBoston002TW(anchor) {
+  function buildBoston002TW(parentGroup) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parentGroup.add(g);
     const loader = new GLTFLoader();
     loader.load(
       './honeybee.glb',
@@ -294,9 +294,9 @@
   }
 
   // ── Spot 2 · BOSTON003TW — DIY VR Implant GLB ───────────────
-  function buildBoston003TW(anchor) {
+  function buildBoston003TW(parentGroup) {
     const g = new THREE.Group();
-    anchor.group.add(g);
+    parentGroup.add(g);
     const loader = new GLTFLoader();
     loader.load(
       './diy_vr_implant.glb',
@@ -392,26 +392,41 @@
 
     // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
     // GLB models are lazy-loaded on first detection to speed up initial startup.
+    // Content lives in frozenGroups (scene root) — NOT inside anchor.group.
+    // This is critical: MindAR internally sets anchor.group.visible=false on target
+    // loss, which would hide our content. By keeping content outside anchor.group
+    // we control visibility ourselves and can keep models visible after marker loss.
     const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
     const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
     const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
     const contents   = [null, null, null];
+    const frozenGroups = anchors.map(() => {
+      const fg = new THREE.Group();
+      fg.visible = false;
+      scene.add(fg);
+      return fg;
+    });
+    const markerVisibles = [false, false, false];
+    const despawnTimers  = [null, null, null];
+    // Reusable decompose targets — avoids per-frame GC pressure
+    const _pos  = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scl  = new THREE.Vector3();
     let activeContent = null;
 
     anchors.forEach((anchor, i) => {
-      let despawnTimer = null;
       anchor.onTargetFound = () => {
-        if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
-        if (!contents[i]) contents[i] = builders[i](anchor);
-        anchor.group.visible = true;
+        if (despawnTimers[i]) { clearTimeout(despawnTimers[i]); despawnTimers[i] = null; }
+        if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
+        frozenGroups[i].visible = true;
+        markerVisibles[i] = true;
         activeContent = contents[i];
 
         if (!worldLocked[i]) {
-          // First ever detection for this anchor — lock it to world space
           worldLocked[i] = true;
           lockBadge.classList.add('active');
         }
-        // Marker is visible: let MindAR drive the camera (disable our override)
+        // Marker visible — disable gyroscope override, MindAR drives position
         lockCamQuat = null;
         lockDevQuat = null;
 
@@ -421,11 +436,11 @@
         spotLabel.classList.add('visible');
       };
       anchor.onTargetLost = () => {
+        markerVisibles[i] = false;
         if (!worldLocked[i]) {
           // Not yet placed — normal 3 s despawn
-          if (despawnTimer) clearTimeout(despawnTimer);
-          despawnTimer = setTimeout(() => {
-            anchor.group.visible = false;
+          despawnTimers[i] = setTimeout(() => {
+            frozenGroups[i].visible = false;
             if (activeContent === contents[i]) {
               activeContent = null;
               spotLabel.classList.remove('visible');
@@ -435,11 +450,10 @@
           }, 3000);
           return;
         }
-        // World-locked: keep content visible, hand camera control to gyroscope
+        // World-locked: frozenGroup stays visible at its last position
         lockCamQuat = camera.quaternion.clone();
-        lockDevQuat = null; // will be set on the first orientation event
+        lockDevQuat = null;
         startOrientationTracking();
-        // Hint: scan to re-anchor if needed
         scanHint.textContent = 'Walk around — scan marker to re-anchor';
         scanHint.classList.remove('hidden');
       };
@@ -479,7 +493,19 @@
 
     const _deltaQuat = new THREE.Quaternion();
     renderer.setAnimationLoop(() => {
-      // When marker is lost but world-locked: rotate camera from gyroscope
+      // Sync frozenGroup transform with live marker while marker is visible.
+      // anchor.group is updated by MindAR each frame; we mirror it into frozenGroup
+      // so that when the marker disappears frozenGroup stays at the last known pose.
+      anchors.forEach((anchor, i) => {
+        if (markerVisibles[i]) {
+          anchor.group.updateWorldMatrix(true, false);
+          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
+          frozenGroups[i].position.copy(_pos);
+          frozenGroups[i].quaternion.copy(_quat);
+          frozenGroups[i].scale.copy(_scl);
+        }
+      });
+      // Gyroscope camera rotation when world-locked and marker lost
       if (lockCamQuat && lockDevQuat) {
         _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
         camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
