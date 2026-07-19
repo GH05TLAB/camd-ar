@@ -45,6 +45,8 @@
     #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
     #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
     #scan-hint.hidden { opacity: 0; }
+    #world-lock-badge { position: absolute; bottom: 5.5rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; background: rgba(200,16,46,0.85); padding: 0.3rem 0.9rem; border-radius: 2px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+    #world-lock-badge.active { opacity: 1; }
     .scan-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; animation: pulse-ring 2s ease-out infinite; }
     .scan-ring:nth-child(2) { animation-delay: 0.7s; }
     .scan-ring:nth-child(3) { animation-delay: 1.4s; }
@@ -99,6 +101,7 @@
       <button id="stop-btn">✕ Exit</button>
     </div>
     <div id="spot-label"></div>
+    <div id="world-lock-badge">&#x2693; Anchored in space</div>
     <div id="scan-rings"><div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div></div>
     <div id="scan-hint">Point camera at any CAMD marker</div>
   </div>
@@ -124,8 +127,50 @@
   const scanHint     = document.getElementById('scan-hint');
   const scanRings    = document.getElementById('scan-rings');
   const spotLabel    = document.getElementById('spot-label');
+  const lockBadge    = document.getElementById('world-lock-badge');
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
+
+  // ══════════════════════════════════════════════════════════════
+  //  WORLD ANCHOR — device-orientation-based camera rotation
+  //  When a marker is detected for the first time the content is
+  //  "locked" in AR space.  The gyroscope then drives the camera
+  //  so the user can look/rotate around the model even after the
+  //  printed marker leaves the frame.
+  //  Limitation: translational 6-DOF (physically walking around)
+  //  requires WebXR + ARCore which is Chrome-Android-only.
+  // ══════════════════════════════════════════════════════════════
+
+  const worldLocked = [false, false, false]; // per anchor index
+
+  // Quaternion that corrects device orientation axes to camera axes
+  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+  let devOrientActive = false;
+  let lockCamQuat     = null;   // camera quat at the moment of marker loss
+  let lockDevQuat     = null;   // device orientation quat at that same moment
+  const currDevQuat   = new THREE.Quaternion();
+
+  function onDeviceOrient(e) {
+    if (!e.alpha) return;
+    const r = Math.PI / 180;
+    const euler = new THREE.Euler(e.beta * r, e.alpha * r, -e.gamma * r, 'YXZ');
+    currDevQuat.setFromEuler(euler).multiply(QUAT_SCREEN);
+    // Capture reference on first event after lock
+    if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
+  }
+
+  async function startOrientationTracking() {
+    if (devOrientActive) return;
+    // iOS 13+ requires explicit permission
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+      if (perm !== 'granted') return;
+    }
+    window.addEventListener('deviceorientation', onDeviceOrient);
+    devOrientActive = true;
+  }
 
 
 
@@ -357,26 +402,46 @@
       let despawnTimer = null;
       anchor.onTargetFound = () => {
         if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
-        // Lazy-load model on first detection
         if (!contents[i]) contents[i] = builders[i](anchor);
         anchor.group.visible = true;
         activeContent = contents[i];
+
+        if (!worldLocked[i]) {
+          // First ever detection for this anchor — lock it to world space
+          worldLocked[i] = true;
+          lockBadge.classList.add('active');
+        }
+        // Marker is visible: let MindAR drive the camera (disable our override)
+        lockCamQuat = null;
+        lockDevQuat = null;
+
         scanHint.classList.add('hidden');
         scanRings.classList.add('hidden');
-        spotLabel.textContent = '📍 ' + spotNames[i];
+        spotLabel.textContent = '⚓ ' + spotNames[i];
         spotLabel.classList.add('visible');
       };
       anchor.onTargetLost = () => {
-        if (despawnTimer) clearTimeout(despawnTimer);
-        despawnTimer = setTimeout(() => {
-          anchor.group.visible = false;
-          if (activeContent === contents[i]) {
-            activeContent = null;
-            spotLabel.classList.remove('visible');
-            scanHint.classList.remove('hidden');
-            scanRings.classList.remove('hidden');
-          }
-        }, 3000);
+        if (!worldLocked[i]) {
+          // Not yet placed — normal 3 s despawn
+          if (despawnTimer) clearTimeout(despawnTimer);
+          despawnTimer = setTimeout(() => {
+            anchor.group.visible = false;
+            if (activeContent === contents[i]) {
+              activeContent = null;
+              spotLabel.classList.remove('visible');
+              scanHint.classList.remove('hidden');
+              scanRings.classList.remove('hidden');
+            }
+          }, 3000);
+          return;
+        }
+        // World-locked: keep content visible, hand camera control to gyroscope
+        lockCamQuat = camera.quaternion.clone();
+        lockDevQuat = null; // will be set on the first orientation event
+        startOrientationTracking();
+        // Hint: scan to re-anchor if needed
+        scanHint.textContent = 'Walk around — scan marker to re-anchor';
+        scanHint.classList.remove('hidden');
       };
     });
 
@@ -412,7 +477,13 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
+    const _deltaQuat = new THREE.Quaternion();
     renderer.setAnimationLoop(() => {
+      // When marker is lost but world-locked: rotate camera from gyroscope
+      if (lockCamQuat && lockDevQuat) {
+        _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
+        camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
+      }
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
@@ -424,6 +495,15 @@
       mindarThree.renderer.setAnimationLoop(null);
       mindarThree = null;
     }
+    // Reset world-lock state
+    worldLocked.fill(false);
+    lockCamQuat = null;
+    lockDevQuat = null;
+    window.removeEventListener('deviceorientation', onDeviceOrient);
+    devOrientActive = false;
+    lockBadge.classList.remove('active');
+    scanHint.textContent = 'Point camera at any CAMD marker';
+
     arContainer.innerHTML = '';
     arContainer.style.display = 'none';
     arUI.style.display = 'none';
