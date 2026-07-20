@@ -45,6 +45,8 @@
     #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
     #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
     #scan-hint.hidden { opacity: 0; }
+    #world-lock-badge { position: absolute; bottom: 5.5rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; background: rgba(200,16,46,0.85); padding: 0.3rem 0.9rem; border-radius: 2px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+    #world-lock-badge.active { opacity: 1; }
     .scan-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; animation: pulse-ring 2s ease-out infinite; }
     .scan-ring:nth-child(2) { animation-delay: 0.7s; }
     .scan-ring:nth-child(3) { animation-delay: 1.4s; }
@@ -99,6 +101,7 @@
       <button id="stop-btn">✕ Exit</button>
     </div>
     <div id="spot-label"></div>
+    <div id="world-lock-badge">&#x2693; Anchored in space</div>
     <div id="scan-rings"><div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div></div>
     <div id="scan-hint">Point camera at any CAMD marker</div>
   </div>
@@ -108,80 +111,65 @@
   import { MindARThree } from 'mindar-image-three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+  // 3 distinct marker images compiled into targets.mind (index 0/1/2).
+  // Each anchor tracks a different physical marker and shows its own content.
+  // One shared QR code opens this page — no ?spot= parameter needed.
   const MARKER_FILE = './targets.mind';
 
   let mindarThree = null, clock = null;
 
-  const splash         = document.getElementById('splash');
-  const arContainer    = document.getElementById('ar-container');
-  const arUI           = document.getElementById('ar-ui');
+  const splash       = document.getElementById('splash');
+  const arContainer  = document.getElementById('ar-container');
+  const arUI         = document.getElementById('ar-ui');
   const loadingOverlay = document.getElementById('loading-overlay');
-  const startBtn       = document.getElementById('start-btn');
-  const stopBtn        = document.getElementById('stop-btn');
-  const scanHint       = document.getElementById('scan-hint');
-  const scanRings      = document.getElementById('scan-rings');
-  const spotLabel      = document.getElementById('spot-label');
+  const startBtn     = document.getElementById('start-btn');
+  const stopBtn      = document.getElementById('stop-btn');
+  const scanHint     = document.getElementById('scan-hint');
+  const scanRings    = document.getElementById('scan-rings');
+  const spotLabel    = document.getElementById('spot-label');
+  const lockBadge    = document.getElementById('world-lock-badge');
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click',  stopAR);
 
   // ══════════════════════════════════════════════════════════════
-  //  DEVICE ORIENTATION WORLD-ANCHOR STATE
+  //  WORLD ANCHOR — device-orientation-based camera rotation
+  //  When a marker is detected for the first time the content is
+  //  "locked" in AR space.  The gyroscope then drives the camera
+  //  so the user can look/rotate around the model even after the
+  //  printed marker leaves the frame.
+  //  Limitation: translational 6-DOF (physically walking around)
+  //  requires WebXR + ARCore which is Chrome-Android-only.
   // ══════════════════════════════════════════════════════════════
 
-  // Standard Three.js formula: aligns device frame to Three.js camera space.
-  // Same constant used by THREE.DeviceOrientationControls.
-  const QUAT_CAM_ALIGN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-  const D2R = Math.PI / 180;
+  const worldLocked = [false, false, false]; // per anchor index
 
-  const worldLocked      = [false, false, false];
-  let orientPermGranted  = false;
-  let devOrientActive    = false;
-  let lockCamQuat        = null;         // camera quat at moment of first marker detection
-  let lockOrientQuat     = null;         // device orientation at first marker detection
-  const currOrientQuat   = new THREE.Quaternion();
-  let orientReady        = false;        // received at least one deviceorientation event
-  const _deltaQuat       = new THREE.Quaternion();
-  const _lockInvQuat     = new THREE.Quaternion();
-  const _pos  = new THREE.Vector3();
-  const _quat = new THREE.Quaternion();
-  const _scl  = new THREE.Vector3();
+  // Quaternion that corrects device orientation axes to camera axes
+  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-  // Device-orientation → Three.js camera quaternion.
-  // alpha (compass heading): increases clockwise (N=0, E=90, S=180, W=270).
-  // Three.js +Y rotation = counterclockwise from above = left turn.
-  // Therefore alpha must be NEGATED to get correct right-hand camera rotation.
-  // beta (pitch): tilting phone forward = +beta → +X camera rotation (look down). Sign OK.
-  // gamma (roll): tilting right = +gamma → -Z camera rotation (clockwise roll). Sign OK.
-  function orientToQuat(alpha, beta, gamma) {
-    const q = new THREE.Quaternion();
-    q.setFromEuler(new THREE.Euler(beta * D2R, -alpha * D2R, -gamma * D2R, 'YXZ'));
-    q.multiply(QUAT_CAM_ALIGN);
-    return q;
+  let devOrientActive = false;
+  let lockCamQuat     = null;   // camera quat at the moment of marker loss
+  let lockDevQuat     = null;   // device orientation quat at that same moment
+  const currDevQuat   = new THREE.Quaternion();
+
+  function onDeviceOrient(e) {
+    if (!e.alpha) return;
+    const r = Math.PI / 180;
+    const euler = new THREE.Euler(e.beta * r, e.alpha * r, -e.gamma * r, 'YXZ');
+    currDevQuat.setFromEuler(euler).multiply(QUAT_SCREEN);
+    // Capture reference on first event after lock
+    if (!lockDevQuat) lockDevQuat = currDevQuat.clone().invert();
   }
 
-  function onDeviceOrientation(e) {
-    if (e.alpha === null || e.beta === null || e.gamma === null) return;
-    currOrientQuat.copy(orientToQuat(e.alpha, e.beta, e.gamma));
-    if (!orientReady) {
-      // First event after tracking started: if a lock is pending, snapshot it now.
-      if (lockCamQuat && !lockOrientQuat) {
-        lockOrientQuat = currOrientQuat.clone();
-      }
-      orientReady = true;
+  async function startOrientationTracking() {
+    if (devOrientActive) return;
+    // iOS 13+ requires explicit permission
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+      if (perm !== 'granted') return;
     }
-  }
-
-  function startOrientTracking() {
-    if (devOrientActive || !orientPermGranted) return;
-    window.addEventListener('deviceorientation', onDeviceOrientation);
+    window.addEventListener('deviceorientation', onDeviceOrient);
     devOrientActive = true;
-  }
-
-  function stopOrientTracking() {
-    window.removeEventListener('deviceorientation', onDeviceOrientation);
-    devOrientActive = false;
-    orientReady    = false;
-    lockOrientQuat = null;
   }
 
 
@@ -242,70 +230,92 @@
     });
   }
 
-  // Builders receive a THREE.Group (frozenGroup) — NOT an anchor.
-  // Content is added to the scene root via frozenGroup, so MindAR's internal
-  // anchor.group.visible=false on target loss cannot hide it.
-
-  function buildAerialCompanion(parent) {
+  function buildAerialCompanion(parentGroup) {
     const g = new THREE.Group();
-    parent.add(g);
+    parentGroup.add(g);
     g.userData.type = 'aerial';
+
     const loader = new GLTFLoader();
-    loader.load('./bee/bee.glb', (gltf) => {
-      const model = gltf.scene;
-      const box = new THREE.Box3().setFromObject(model);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-      model.scale.setScalar(1.8 / maxDim);
-      box.setFromObject(model);
-      const center = new THREE.Vector3();
-      box.getCenter(center);
-      model.position.sub(center);
-      applyBeeTextures(model);
-      model.userData.isAerial = true;
-      g.add(model);
-    }, undefined, (err) => console.error('GLB load failed:', err));
+    loader.load(
+      './bee/bee.glb',
+      (gltf) => {
+        const model = gltf.scene;
+
+        // Auto-scale: fit inside ~3.6 units
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale  = 1.8 / maxDim;
+        model.scale.setScalar(scale);
+
+        // Center model at origin
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
+
+        applyBeeTextures(model);
+
+        model.userData.isAerial = true;
+        g.add(model);
+      },
+      undefined,
+      (err) => console.error('GLB load failed:', err)
+    );
+
     return g;
   }
 
-  function buildBoston002TW(parent) {
+  // ── Spot 1 · BOSTON002TW — Honeybee GLB ─────────────────────
+  function buildBoston002TW(parentGroup) {
     const g = new THREE.Group();
-    parent.add(g);
+    parentGroup.add(g);
     const loader = new GLTFLoader();
-    loader.load('./honeybee.glb', (gltf) => {
-      const model = gltf.scene;
-      const box = new THREE.Box3().setFromObject(model);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-      model.scale.setScalar(1.8 / maxDim);
-      box.setFromObject(model);
-      const center = new THREE.Vector3();
-      box.getCenter(center);
-      model.position.sub(center);
-      g.add(model);
-    }, undefined, (err) => console.error('honeybee GLB load failed:', err));
+    loader.load(
+      './honeybee.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        model.scale.setScalar(1.8 / maxDim);
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
+        g.add(model);
+      },
+      undefined,
+      (err) => console.error('honeybee GLB load failed:', err)
+    );
     return g;
   }
 
-  function buildBoston003TW(parent) {
+  // ── Spot 2 · BOSTON003TW — DIY VR Implant GLB ───────────────
+  function buildBoston003TW(parentGroup) {
     const g = new THREE.Group();
-    parent.add(g);
+    parentGroup.add(g);
     const loader = new GLTFLoader();
-    loader.load('./diy_vr_implant.glb', (gltf) => {
-      const model = gltf.scene;
-      const box = new THREE.Box3().setFromObject(model);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-      model.scale.setScalar(3.6 / maxDim);
-      box.setFromObject(model);
-      const center = new THREE.Vector3();
-      box.getCenter(center);
-      model.position.sub(center);
-      g.add(model);
-    }, undefined, (err) => console.error('diy_vr_implant GLB load failed:', err));
+    loader.load(
+      './diy_vr_implant.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        model.scale.setScalar(3.6 / maxDim);
+        box.setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.sub(center);
+        g.add(model);
+      },
+      undefined,
+      (err) => console.error('diy_vr_implant GLB load failed:', err)
+    );
     return g;
   }
 
@@ -354,21 +364,12 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
-    // iOS 13+: DeviceOrientationEvent permission must come from a user-gesture context.
-    // Android/desktop grant access without a prompt.
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
-      orientPermGranted = (perm === 'granted');
-    } else {
-      orientPermGranted = true;
-    }
-
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
     arUI.style.display = 'block';
 
+    // Fetch weather in parallel with MindAR init (takes ~1s vs MindAR's 5-15s)
     const weatherPromise = getWeatherLighting();
 
     mindarThree = new MindARThree({
@@ -376,11 +377,12 @@
       imageTargetSrc: MARKER_FILE,
       maxTrack:       1,
       uiLoading: 'no', uiScanning: 'no', uiError: 'no',
-      filterMinCF: 0.0001, filterBeta: 10,
+      filterMinCF: 0.00001, filterBeta: 0.0001,
     });
 
     const { renderer, scene, camera } = mindarThree;
 
+    // Default neutral lighting — replaced by weather result after mindarThree.start()
     const ambient = new THREE.AmbientLight(0xffffff, 0.4);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(2, 4, 3);
@@ -388,54 +390,57 @@
     fill.position.set(-2, 1, -2);
     scene.add(ambient, dir, fill);
 
-    const spotNames = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
-    const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
-    const contents  = [null, null, null];
-    // true while MindAR is actively tracking this anchor's marker.
-    const markerVisible = [false, false, false];
-
-    // Content lives inside anchor.group (same as the original pre-world-anchor design).
-    // This guarantees it appears at the correct marker position while tracked.
-    // After marker loss MindAR sets anchor.group.visible = false — we override this
-    // in the animation loop to keep locked content visible.
-
+    // 3 anchors — each tracks a different physical marker (targets.mind index 0/1/2).
+    // GLB models are lazy-loaded on first detection to speed up initial startup.
+    // Content lives in frozenGroups (scene root) — NOT inside anchor.group.
+    // This is critical: MindAR internally sets anchor.group.visible=false on target
+    // loss, which would hide our content. By keeping content outside anchor.group
+    // we control visibility ourselves and can keep models visible after marker loss.
+    const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
+    const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
+    const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
+    const contents   = [null, null, null];
+    const frozenGroups = anchors.map(() => {
+      const fg = new THREE.Group();
+      fg.visible = false;
+      scene.add(fg);
+      return fg;
+    });
+    const markerVisibles = [false, false, false];
+    const despawnTimers  = [null, null, null];
+    // Reusable decompose targets — avoids per-frame GC pressure
+    const _pos  = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scl  = new THREE.Vector3();
     let activeContent = null;
 
     anchors.forEach((anchor, i) => {
-      let despawnTimer = null;
-
       anchor.onTargetFound = () => {
-        markerVisible[i] = true;
-        if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
-        anchor.group.visible = true;
+        if (despawnTimers[i]) { clearTimeout(despawnTimers[i]); despawnTimers[i] = null; }
+        if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
+        frozenGroups[i].visible = true;
+        markerVisibles[i] = true;
+        activeContent = contents[i];
 
         if (!worldLocked[i]) {
           worldLocked[i] = true;
-          if (!contents[i]) contents[i] = builders[i](anchor.group);
-          activeContent = contents[i];
-
-          // Capture reference orientation at the moment of first detection.
-          // Camera is always identity here (MindAR keeps camera at origin).
-          lockCamQuat    = camera.quaternion.clone();
-          lockOrientQuat = orientReady ? currOrientQuat.clone() : null;
-          startOrientTracking();
-        } else {
-          activeContent = contents[i];
+          lockBadge.classList.add('active');
         }
+        // Marker visible — disable gyroscope override, MindAR drives position
+        lockCamQuat = null;
+        lockDevQuat = null;
 
         scanHint.classList.add('hidden');
         scanRings.classList.add('hidden');
         spotLabel.textContent = '⚓ ' + spotNames[i];
         spotLabel.classList.add('visible');
       };
-
       anchor.onTargetLost = () => {
-        markerVisible[i] = false;
-
+        markerVisibles[i] = false;
         if (!worldLocked[i]) {
-          // Content never locked — despawn after grace period.
-          despawnTimer = setTimeout(() => {
+          // Not yet placed — normal 3 s despawn
+          despawnTimers[i] = setTimeout(() => {
+            frozenGroups[i].visible = false;
             if (activeContent === contents[i]) {
               activeContent = null;
               spotLabel.classList.remove('visible');
@@ -445,14 +450,16 @@
           }, 3000);
           return;
         }
-
-        // Locked content: animation loop will force anchor.group.visible = true.
-        startOrientTracking();
-        scanHint.textContent = 'Content anchored — move around freely';
+        // World-locked: frozenGroup stays visible at its last position
+        lockCamQuat = camera.quaternion.clone();
+        lockDevQuat = null;
+        startOrientationTracking();
+        scanHint.textContent = 'Walk around — scan marker to re-anchor';
         scanHint.classList.remove('hidden');
       };
     });
 
+    // Touch rotation — rotates whichever content is currently visible
     let touchStart = null;
     const onTouchStart = (e) => {
       if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX };
@@ -475,6 +482,7 @@
       stopAR(); return;
     }
 
+    // Apply weather lighting — should already be resolved since MindAR took longer
     const lx = await weatherPromise;
     ambient.color.setHex(lx.aC); ambient.intensity = lx.aI;
     dir.color.setHex(lx.dC);    dir.intensity = lx.dI;    dir.position.set(...lx.dP);
@@ -483,50 +491,49 @@
     loadingOverlay.classList.add('hidden');
     clock = new THREE.Clock();
 
+    const _deltaQuat = new THREE.Quaternion();
     renderer.setAnimationLoop(() => {
-      const anyMarkerVisible = markerVisible.some(v => v);
-
-      // MindAR sets anchor.group.visible = false on target loss.
-      // For locked content, override it back to true every frame.
+      // Sync frozenGroup transform with live marker while marker is visible.
+      // anchor.group is updated by MindAR each frame; we mirror it into frozenGroup
+      // so that when the marker disappears frozenGroup stays at the last known pose.
       anchors.forEach((anchor, i) => {
-        if (worldLocked[i]) anchor.group.visible = true;
+        if (markerVisibles[i]) {
+          anchor.group.updateWorldMatrix(true, false);
+          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
+          frozenGroups[i].position.copy(_pos);
+          frozenGroups[i].quaternion.copy(_quat);
+          frozenGroups[i].scale.copy(_scl);
+        }
       });
-
-      if (anyMarkerVisible) {
-        // Marker actively tracked: MindAR positions the anchor correctly assuming
-        // camera is identity. Keep camera at identity so it works normally.
-        camera.quaternion.set(0, 0, 0, 1);
-      } else if (lockCamQuat && lockOrientQuat && orientReady) {
-        // No marker tracked: rotate camera by the delta between the orientation at
-        // first detection and the current orientation, so the anchor (which stays
-        // at its last-known world position) appears to remain in the same physical
-        // direction as the user rotates the phone.
-        _lockInvQuat.copy(lockOrientQuat).invert();
-        _deltaQuat.multiplyQuaternions(_lockInvQuat, currOrientQuat);
+      // Gyroscope camera rotation when world-locked and marker lost
+      if (lockCamQuat && lockDevQuat) {
+        _deltaQuat.multiplyQuaternions(lockDevQuat, currDevQuat);
         camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
       }
-
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
   }
 
   async function stopAR() {
-    stopOrientTracking();
-    worldLocked.fill(false);
-    lockCamQuat    = null;
-    lockOrientQuat = null;
-
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
       mindarThree.renderer.setAnimationLoop(null);
       mindarThree = null;
     }
+    // Reset world-lock state
+    worldLocked.fill(false);
+    lockCamQuat = null;
+    lockDevQuat = null;
+    window.removeEventListener('deviceorientation', onDeviceOrient);
+    devOrientActive = false;
+    lockBadge.classList.remove('active');
+    scanHint.textContent = 'Point camera at any CAMD marker';
+
     arContainer.innerHTML = '';
     arContainer.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    scanHint.textContent = 'Point camera at any CAMD marker';
     scanHint.classList.remove('hidden');
     scanRings.classList.remove('hidden');
     spotLabel.classList.remove('visible');
