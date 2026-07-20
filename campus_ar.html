@@ -146,11 +146,15 @@
   const _quat = new THREE.Quaternion();
   const _scl  = new THREE.Vector3();
 
-  // Three.js DeviceOrientationControls formula: absolute orientation → camera quaternion.
-  // Uses device's built-in sensor fusion (Kalman filter) — no integration drift.
+  // Device-orientation → Three.js camera quaternion.
+  // alpha (compass heading): increases clockwise (N=0, E=90, S=180, W=270).
+  // Three.js +Y rotation = counterclockwise from above = left turn.
+  // Therefore alpha must be NEGATED to get correct right-hand camera rotation.
+  // beta (pitch): tilting phone forward = +beta → +X camera rotation (look down). Sign OK.
+  // gamma (roll): tilting right = +gamma → -Z camera rotation (clockwise roll). Sign OK.
   function orientToQuat(alpha, beta, gamma) {
     const q = new THREE.Quaternion();
-    q.setFromEuler(new THREE.Euler(beta * D2R, alpha * D2R, -gamma * D2R, 'YXZ'));
+    q.setFromEuler(new THREE.Euler(beta * D2R, -alpha * D2R, -gamma * D2R, 'YXZ'));
     q.multiply(QUAT_CAM_ALIGN);
     return q;
   }
@@ -372,7 +376,7 @@
       imageTargetSrc: MARKER_FILE,
       maxTrack:       1,
       uiLoading: 'no', uiScanning: 'no', uiError: 'no',
-      filterMinCF: 0.00001, filterBeta: 0.0001,
+      filterMinCF: 0.0001, filterBeta: 10,
     });
 
     const { renderer, scene, camera } = mindarThree;
@@ -388,6 +392,11 @@
     const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
     const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
     const contents  = [null, null, null];
+    // Track which anchors are currently being tracked by MindAR.
+    // Camera compensation must be OFF while any marker is visible — MindAR
+    // computes anchor positions assuming camera is at identity, and applying
+    // our rotation on top would push content off-screen.
+    const markerVisible = [false, false, false];
 
     // frozenGroups live at the scene root, outside any anchor.group hierarchy.
     // MindAR calls anchor.group.visible = false on target loss — frozenGroups
@@ -405,6 +414,7 @@
       let despawnTimer = null;
 
       anchor.onTargetFound = () => {
+        markerVisible[i] = true;
         if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
 
         if (!worldLocked[i]) {
@@ -440,6 +450,7 @@
       };
 
       anchor.onTargetLost = () => {
+        markerVisible[i] = false;
         if (!worldLocked[i]) {
           // Not yet placed — hide after grace period as before.
           despawnTimer = setTimeout(() => {
@@ -493,15 +504,21 @@
     clock = new THREE.Clock();
 
     renderer.setAnimationLoop(() => {
-      // Apply device-orientation delta to camera so frozen content appears
-      // anchored in physical space as the user rotates the phone.
-      // delta = inv(orientAtLoss) * orientNow — computed fresh every frame,
-      // no integration drift.
-      if (lockCamQuat && lockOrientQuat && orientReady) {
+      const anyMarkerVisible = markerVisible.some(v => v);
+
+      if (anyMarkerVisible) {
+        // Marker is actively tracked: MindAR computes anchor positions assuming
+        // camera is at identity. Reset to identity so content appears at the
+        // marker's correct position in the video feed.
+        camera.quaternion.set(0, 0, 0, 1);
+      } else if (lockCamQuat && lockOrientQuat && orientReady) {
+        // No marker tracked: rotate camera to compensate for phone rotation so
+        // the frozen content appears anchored in the same physical direction.
         _lockInvQuat.copy(lockOrientQuat).invert();
         _deltaQuat.multiplyQuaternions(_lockInvQuat, currOrientQuat);
         camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
       }
+
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
