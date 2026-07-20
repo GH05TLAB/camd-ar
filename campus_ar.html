@@ -392,21 +392,13 @@
     const builders  = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
     const anchors   = [0, 1, 2].map(i => mindarThree.addAnchor(i));
     const contents  = [null, null, null];
-    // Track which anchors are currently being tracked by MindAR.
-    // Camera compensation must be OFF while any marker is visible — MindAR
-    // computes anchor positions assuming camera is at identity, and applying
-    // our rotation on top would push content off-screen.
+    // true while MindAR is actively tracking this anchor's marker.
     const markerVisible = [false, false, false];
 
-    // frozenGroups live at the scene root, outside any anchor.group hierarchy.
-    // MindAR calls anchor.group.visible = false on target loss — frozenGroups
-    // are unaffected, so content stays visible after the marker leaves the camera.
-    const frozenGroups = [0, 1, 2].map(() => {
-      const g = new THREE.Group();
-      g.visible = false;
-      scene.add(g);
-      return g;
-    });
+    // Content lives inside anchor.group (same as the original pre-world-anchor design).
+    // This guarantees it appears at the correct marker position while tracked.
+    // After marker loss MindAR sets anchor.group.visible = false — we override this
+    // in the animation loop to keep locked content visible.
 
     let activeContent = null;
 
@@ -416,30 +408,19 @@
       anchor.onTargetFound = () => {
         markerVisible[i] = true;
         if (despawnTimer) { clearTimeout(despawnTimer); despawnTimer = null; }
+        anchor.group.visible = true;
 
         if (!worldLocked[i]) {
-          // First detection: place content at the marker's world transform, lock it.
           worldLocked[i] = true;
-          if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
-          frozenGroups[i].visible = true;
+          if (!contents[i]) contents[i] = builders[i](anchor.group);
           activeContent = contents[i];
 
-          anchor.group.updateWorldMatrix(true, false);
-          anchor.group.matrixWorld.decompose(_pos, _quat, _scl);
-          frozenGroups[i].position.copy(_pos);
-          frozenGroups[i].quaternion.copy(_quat);
-          frozenGroups[i].scale.copy(_scl);
-
-          // Reference orientation set HERE at detection time — same moment the
-          // frozenGroup is positioned. Camera is identity (MindAR default).
-          // When user later returns to this same physical direction, camera
-          // returns to identity and content appears at its original position.
+          // Capture reference orientation at the moment of first detection.
+          // Camera is always identity here (MindAR keeps camera at origin).
           lockCamQuat    = camera.quaternion.clone();
           lockOrientQuat = orientReady ? currOrientQuat.clone() : null;
           startOrientTracking();
         } else {
-          // Marker re-appeared: content is already world-locked, don't reposition.
-          frozenGroups[i].visible = true;
           activeContent = contents[i];
         }
 
@@ -451,10 +432,10 @@
 
       anchor.onTargetLost = () => {
         markerVisible[i] = false;
+
         if (!worldLocked[i]) {
-          // Not yet placed — hide after grace period as before.
+          // Content never locked — despawn after grace period.
           despawnTimer = setTimeout(() => {
-            frozenGroups[i].visible = false;
             if (activeContent === contents[i]) {
               activeContent = null;
               spotLabel.classList.remove('visible');
@@ -465,8 +446,7 @@
           return;
         }
 
-        // Reference was already set at detection time — don't override.
-        // Just ensure orientation tracking is running and show the hint.
+        // Locked content: animation loop will force anchor.group.visible = true.
         startOrientTracking();
         scanHint.textContent = 'Content anchored — move around freely';
         scanHint.classList.remove('hidden');
@@ -506,14 +486,21 @@
     renderer.setAnimationLoop(() => {
       const anyMarkerVisible = markerVisible.some(v => v);
 
+      // MindAR sets anchor.group.visible = false on target loss.
+      // For locked content, override it back to true every frame.
+      anchors.forEach((anchor, i) => {
+        if (worldLocked[i]) anchor.group.visible = true;
+      });
+
       if (anyMarkerVisible) {
-        // Marker is actively tracked: MindAR computes anchor positions assuming
-        // camera is at identity. Reset to identity so content appears at the
-        // marker's correct position in the video feed.
+        // Marker actively tracked: MindAR positions the anchor correctly assuming
+        // camera is identity. Keep camera at identity so it works normally.
         camera.quaternion.set(0, 0, 0, 1);
       } else if (lockCamQuat && lockOrientQuat && orientReady) {
-        // No marker tracked: rotate camera to compensate for phone rotation so
-        // the frozen content appears anchored in the same physical direction.
+        // No marker tracked: rotate camera by the delta between the orientation at
+        // first detection and the current orientation, so the anchor (which stays
+        // at its last-known world position) appears to remain in the same physical
+        // direction as the user rotates the phone.
         _lockInvQuat.copy(lockOrientQuat).invert();
         _deltaQuat.multiplyQuaternions(_lockInvQuat, currOrientQuat);
         camera.quaternion.multiplyQuaternions(lockCamQuat, _deltaQuat);
