@@ -90,6 +90,9 @@
     </div>
     <button id="start-btn">Start</button>
     <p style="color:var(--white);font-size:clamp(0.85rem,3.5vw,1.05rem);letter-spacing:0.1em;text-transform:uppercase;margin:0">AR experience</p>
+    <p style="font-size:0.7rem;opacity:0.35;font-family:'Courier New',monospace;letter-spacing:0.06em;text-align:center;max-width:280px;line-height:1.5">
+      Tap Start, then allow camera &amp; location access when prompted.
+    </p>
   </div>
 
   <div id="ar-container"></div>
@@ -364,13 +367,28 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
+    // ── Permission requests ──────────────────────────────────────
+    // All permission dialogs are triggered here, right after the user taps
+    // Start, so they appear in one back-to-back sequence rather than scattered
+    // throughout the session.
+
+    // 1. Motion sensors (iOS 13+ only — Android grants automatically)
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      await DeviceOrientationEvent.requestPermission().catch(() => {});
+    }
+
+    // 2. Location — triggers the geolocation dialog; result used for weather.
+    //    Runs concurrently with MindAR init so we don't wait for it here.
+    const weatherPromise = getWeatherLighting();
+
+    // 3. Camera — triggered inside mindarThree.start() below.
+    // ────────────────────────────────────────────────────────────
+
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     arContainer.style.display = 'block';
     arUI.style.display = 'block';
-
-    // Fetch weather in parallel with MindAR init (takes ~1s vs MindAR's 5-15s)
-    const weatherPromise = getWeatherLighting();
 
     mindarThree = new MindARThree({
       container:      arContainer,
