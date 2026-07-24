@@ -8,22 +8,27 @@ const QRCode = require('C:/Users/wiktor.t/AppData/Local/npm-cache/_npx/934e343ed
 const SIZE = 1500
 const BETA_URL = 'https://gh05tlab.github.io/camd-ar/campus_ar_beta.html'
 
-async function makeQrSvgGroup(url, x, y, boxSize) {
-  const svgStr = await QRCode.toString(url, {type: 'svg', margin: 1})
-  // Extract viewBox size (qrcode outputs e.g. viewBox="0 0 35 35")
-  const vbMatch = svgStr.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)
-  // qrcode uses stroke path (h/m syntax horizontal lines per module row)
-  const pathMatch = svgStr.match(/<path stroke="#000000" d="([^"]+)"/)
-  if (!vbMatch || !pathMatch) throw new Error(`QR SVG parse failed. SVG start: ${svgStr.substring(0, 200)}`)
-  const vbSize = parseFloat(vbMatch[1])
-  const scale = boxSize / vbSize
-  return `
-    <g transform="translate(${x}, ${y})">
-      <rect width="${boxSize}" height="${boxSize}" fill="white" rx="8"/>
-      <g transform="scale(${scale})">
-        <path stroke="#000000" stroke-width="1" stroke-linecap="square" fill="none" d="${pathMatch[1]}"/>
-      </g>
-    </g>`
+function makeQrSvgGroup(url, x, y, boxSize) {
+  // Use raw module matrix so we draw perfect filled rects (stroke-based SVG is unreliable when printed)
+  const qrData = QRCode.create(url, {errorCorrectionLevel: 'M'})
+  const modules = qrData.modules
+  const n = modules.size       // e.g. 33 modules for this URL length
+  const margin = 2             // quiet zone in modules
+  const total = n + margin * 2
+  const m = boxSize / total    // pixels per module
+  const rects = []
+  // Quiet zone background
+  rects.push(`<rect x="${x}" y="${y}" width="${boxSize}" height="${boxSize}" fill="white" rx="6"/>`)
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (modules.get(row, col)) {
+        const rx = x + (col + margin) * m
+        const ry = y + (row + margin) * m
+        rects.push(`<rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${m.toFixed(1)}" height="${m.toFixed(1)}" fill="#000"/>`)
+      }
+    }
+  }
+  return rects.join('\n')
 }
 
 function cornerSquare(x, y, s) {
@@ -64,9 +69,9 @@ const QR_X = Math.round((SIZE - QR_SIZE) / 2)
 const QR_Y = Math.round(SIZE * 0.5 - QR_SIZE / 2 + SIZE * 0.04)  // slightly below center (leaves room for top elements)
 
 // ── MARKER B-01: diagonal stripes + QR ─────────────────────
-async function svgB01() {
+function svgB01() {
   const S = SIZE
-  const qr = await makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
+  const qr = makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
   const stripeW = S * 0.022
   const stripes = []
   for (let i = -S; i < S*2; i += stripeW*3) {
@@ -83,10 +88,10 @@ async function svgB01() {
 }
 
 // ── MARKER B-02: concentric rings + QR ─────────────────────
-async function svgB02() {
+function svgB02() {
   const S = SIZE
   const cx = S / 2, cy = S / 2
-  const qr = await makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
+  const qr = makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
   const rings = []
   const radii = [S*0.32, S*0.24, S*0.16, S*0.09]
   for (const r of radii) {
@@ -110,9 +115,9 @@ async function svgB02() {
 }
 
 // ── MARKER B-03: grid / circuit board + QR ───────────────────────
-async function svgB03() {
+function svgB03() {
   const S = SIZE
-  const qr = await makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
+  const qr = makeQrSvgGroup(BETA_URL, QR_X, QR_Y, QR_SIZE)
   const gridStep = S * 0.055
   const lines = []
   for (let x = 0; x < S; x += gridStep) {
@@ -148,7 +153,7 @@ const markers = [
 ]
 
 for (const {name, svgFn} of markers) {
-  const svg = await svgFn()
+  const svg = svgFn()
   await sharp(Buffer.from(svg))
     .png()
     .toFile(`./${name}.png`)
