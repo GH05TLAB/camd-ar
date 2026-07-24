@@ -120,9 +120,9 @@
   //  Each spot maps to a marker name (must match image-targets JSON)
   // ─────────────────────────────────────────────────────────────
   const SPOTS = {
-    boston001: { label: 'Spot 1 · Robotic Bee',    glb: './bee/bee.glb',        scale: 1.8, textures: true },
-    boston002: { label: 'Spot 2 · Honeybee',        glb: './honeybee.glb',       scale: 1.8, textures: false },
-    boston003: { label: 'Spot 3 · DIY VR Implant',  glb: './diy_vr_implant.glb', scale: 3.6, textures: false },
+    beta001: { label: 'Spot 1 · Robotic Bee',    glb: './bee/bee.glb',        scale: 1.8, textures: true },
+    beta002: { label: 'Spot 2 · Honeybee',        glb: './honeybee.glb',       scale: 1.8, textures: false },
+    beta003: { label: 'Spot 3 · DIY VR Implant',  glb: './diy_vr_implant.glb', scale: 3.6, textures: false },
   }
 
   // Bee texture map (same as alpha)
@@ -358,7 +358,7 @@
 
     // Load image target JSON files
     const targetData = await Promise.all(
-      ['boston001', 'boston002', 'boston003'].map(name =>
+      ['beta001', 'beta002', 'beta003'].map(name =>
         fetch(`./image-targets/${name}.json`).then(r => r.json())
       )
     )

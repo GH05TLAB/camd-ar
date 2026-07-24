@@ -1,0 +1,22 @@
+{
+  "imagePath": "image-targets/beta003_luminance.png",
+  "name": "beta003",
+  "type": "FLAT",
+  "properties": {
+    "left": 188,
+    "top": 0,
+    "width": 1125,
+    "height": 1500,
+    "isRotated": false,
+    "originalWidth": 1500,
+    "originalHeight": 1500
+  },
+  "resources": {
+    "originalImage": "beta003_original.png",
+    "croppedImage": "beta003_cropped.png",
+    "thumbnailImage": "beta003_thumbnail.png",
+    "luminanceImage": "beta003_luminance.png"
+  },
+  "created": 1784858934796,
+  "updated": 1784858934796
+}

@@ -10,9 +10,9 @@ const LUMINANCE_HEIGHT = 640
 const THUMBNAIL_HEIGHT = 350
 
 const MARKERS = [
-  {src: './marker_BOSTON001TW.png', name: 'boston001'},
-  {src: './marker_BOSTON002TW.png', name: 'boston002'},
-  {src: './marker_BOSTON003TW.png', name: 'boston003'},
+  {src: './marker_BETA001.png', name: 'beta001'},
+  {src: './marker_BETA002.png', name: 'beta002'},
+  {src: './marker_BETA003.png', name: 'beta003'},
 ]
 
 function getDefaultCrop(width, height) {
