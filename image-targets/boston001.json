@@ -1,0 +1,22 @@
+{
+  "imagePath": "image-targets/boston001_luminance.png",
+  "name": "boston001",
+  "type": "FLAT",
+  "properties": {
+    "left": 74,
+    "top": 0,
+    "width": 1000,
+    "height": 1333,
+    "isRotated": false,
+    "originalWidth": 1148,
+    "originalHeight": 1333
+  },
+  "resources": {
+    "originalImage": "boston001_original.png",
+    "croppedImage": "boston001_cropped.png",
+    "thumbnailImage": "boston001_thumbnail.png",
+    "luminanceImage": "boston001_luminance.png"
+  },
+  "created": 1784857554640,
+  "updated": 1784857554640
+}

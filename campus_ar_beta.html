@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en" data-v="2026-07-23-beta">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>CAMD AR — Campus Experience (Beta)</title>
+
+  <!-- Three.js via import map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Expose Three.js globally for XR8 pipeline -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    window.THREE = THREE;
+    window.THREE.GLTFLoader = GLTFLoader;
+  </script>
+
+  <!-- 8th Wall engine binary (self-hosted via JSDelivr; replace src with local path after download) -->
+  <!-- data-preload-chunks="slam" enables SLAM world-tracking -->
+  <script async src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+    crossorigin="anonymous"
+    data-preload-chunks="slam"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --red: #c8102e; --black: #1a1a1a; --white: #ffffff; }
+    body { background: var(--black); font-family: 'Georgia', serif; color: var(--white); overflow: hidden; height: 100dvh; width: 100dvw; }
+
+    /* 8th Wall needs a full-window canvas */
+    #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+
+    /* Splash */
+    #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; background: var(--black); gap: 2rem; padding: 2rem; padding-top: clamp(2rem,8vh,4rem); z-index: 100; }
+    .splash-logo { width: 80px; height: 80px; background: var(--black); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; padding: 6px; outline: 3px solid var(--white); }
+    .splash-logo span { display: flex; align-items: center; justify-content: center; background: var(--black); color: var(--white); font-size: 1.6rem; font-weight: 700; font-family: 'Georgia', serif; }
+    .splash-title h1 { font-size: clamp(0.85rem,3vw,1rem); opacity: 0.7; letter-spacing: 0.15em; text-transform: uppercase; text-align: center; }
+    #start-btn { background: var(--red); color: var(--white); border: none; padding: 1rem 3rem; font-size: 1rem; font-family: 'Georgia', serif; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: background 0.2s, transform 0.1s; position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); }
+    #start-btn:hover { background: #a50d26; }
+    #start-btn:active { transform: translateX(-50%) scale(0.97); }
+
+    /* Loading */
+    #loading-overlay { position: fixed; inset: 0; background: var(--black); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; z-index: 200; }
+    #loading-overlay.hidden { display: none; }
+    .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+    .loader-fill { height: 100%; background: var(--red); animation: loader 1.8s ease-in-out infinite; }
+    @keyframes loader { 0%{width:0%;margin-left:0%} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }
+    .loader-text { font-size: 0.72rem; font-family: 'Courier New', monospace; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.5; }
+
+    /* AR UI overlay */
+    #ar-ui { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
+    #ar-header { position: absolute; top: 0; left: 0; right: 0; padding: 1rem 1.2rem; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
+    #ar-label { font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; font-family: 'Courier New', monospace; opacity: 0.8; }
+    #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
+    #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
+    #scan-hint.hidden { opacity: 0; }
+    #world-lock-badge { position: absolute; bottom: 5.5rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; background: rgba(200,16,46,0.85); padding: 0.3rem 0.9rem; border-radius: 2px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+    #world-lock-badge.active { opacity: 1; }
+    .scan-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; animation: pulse-ring 2s ease-out infinite; }
+    .scan-ring:nth-child(2) { animation-delay: 0.7s; }
+    .scan-ring:nth-child(3) { animation-delay: 1.4s; }
+    @keyframes pulse-ring { 0%{transform:translate(-50%,-50%) scale(0.6);opacity:0.6} 100%{transform:translate(-50%,-50%) scale(1.8);opacity:0} }
+    #scan-rings { transition: opacity 0.4s; }
+    #scan-rings.hidden { opacity: 0; pointer-events: none; }
+    #spot-label { position: absolute; top: 4.5rem; left: 50%; transform: translateX(-50%); background: rgba(200,16,46,0.85); color: #fff; font-family: 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 2px; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
+    #spot-label.visible { opacity: 1; }
+    #beta-badge { position: absolute; top: 4rem; right: 1rem; background: rgba(255,200,0,0.2); border: 1px solid rgba(255,200,0,0.5); color: rgba(255,200,0,0.9); font-family: 'Courier New', monospace; font-size: 0.6rem; letter-spacing: 0.1em; padding: 0.2rem 0.5rem; border-radius: 2px; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+  <canvas id="camerafeed"></canvas>
+
+  <div id="loading-overlay" class="hidden">
+    <div class="splash-logo" style="width:60px;height:60px;"><span style="font-size:1.2rem">C</span><span style="font-size:1.2rem">A</span><span style="font-size:1.2rem">M</span><span style="font-size:1.2rem">D</span></div>
+    <div class="loader-bar"><div class="loader-fill"></div></div>
+    <div class="loader-text">Initialising AR engine…</div>
+  </div>
+
+  <div id="splash">
+    <div class="splash-logo"><span>C</span><span>A</span><span>M</span><span>D</span></div>
+    <div class="splash-title" style="margin-top:0.3rem;margin-bottom:0.2rem">
+      <h1>AR Gallery</h1>
+    </div>
+    <div style="flex:0.4"></div>
+    <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);line-height:1.65;margin:0;padding:0 2rem;text-align:center">
+      Tap Start AR, then allow camera &amp; location access when prompted.
+    </p>
+    <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);opacity:0.7;line-height:1.65;margin:0;padding:0 2rem;text-align:center">
+      Hold your camera near the QR code and slowly move closer or further if needed.
+    </p>
+    <div style="flex:1"></div>
+    <button id="start-btn">START AR</button>
+  </div>
+
+  <div id="ar-ui">
+    <div id="ar-header">
+      <img src="./nu_logo.png" alt="NU" style="width:36px;height:36px;object-fit:contain;">
+      <span id="ar-label">Campus AR</span>
+      <button id="stop-btn">✕ Exit</button>
+    </div>
+    <div id="spot-label"></div>
+    <div id="world-lock-badge">⚓ Anchored in space</div>
+    <div id="beta-badge">BETA — SLAM</div>
+    <div id="scan-rings"><div class="scan-ring"></div><div class="scan-ring"></div><div class="scan-ring"></div></div>
+    <div id="scan-hint">Point camera at any CAMD marker</div>
+  </div>
+
+  <script>
+  // ─────────────────────────────────────────────────────────────
+  //  SPOT CONTENT DEFINITIONS
+  //  Each spot maps to a marker name (must match image-targets JSON)
+  // ─────────────────────────────────────────────────────────────
+  const SPOTS = {
+    boston001: { label: 'Spot 1 · Robotic Bee',    glb: './bee/bee.glb',        scale: 1.8, textures: true },
+    boston002: { label: 'Spot 2 · Honeybee',        glb: './honeybee.glb',       scale: 1.8, textures: false },
+    boston003: { label: 'Spot 3 · DIY VR Implant',  glb: './diy_vr_implant.glb', scale: 3.6, textures: false },
+  }
+
+  // Bee texture map (same as alpha)
+  const BEE_MAT_PART = {
+    'lambert12':'butbutton','lambert8':'tube2','lambert6':'wingbutton',
+    'lambert17':'mouthleft','lambert4':'but','lambert15':'legs',
+    'layeredShader1':'mouth2','mayabee_final2_defaultMat1':'wings',
+    'lambert11':'wingline','lambert13':'chilun','lambert16':'wingpin',
+    'lambert7':'eyebutton','lambert3':'blackline','lambert19':'body2',
+    'blinn1':'legbutton','phong1':'head_tube','lambert14':'addon',
+    'lambert5':'mouthpin','lambert20':'mouth','lambert10':'pins',
+    'lambert18':'head','lambert2':'antenna','lambert9':'eyes',
+    'lambert21':'yellowline',
+  }
+  const BEE_HAS_EMISSIVE = new Set([
+    'antenna','blackline','body2','but','eyebutton','eyes','head','wingpin','wings',
+  ])
+
+  const splash        = document.getElementById('splash')
+  const arUI          = document.getElementById('ar-ui')
+  const loadingOverlay= document.getElementById('loading-overlay')
+  const startBtn      = document.getElementById('start-btn')
+  const stopBtn       = document.getElementById('stop-btn')
+  const scanHint      = document.getElementById('scan-hint')
+  const scanRings     = document.getElementById('scan-rings')
+  const spotLabel     = document.getElementById('spot-label')
+  const lockBadge     = document.getElementById('world-lock-badge')
+  const canvas        = document.getElementById('camerafeed')
+
+  let xrRunning = false
+
+  startBtn.addEventListener('click', startAR)
+  stopBtn.addEventListener('click',  stopAR)
+
+  // ─────────────────────────────────────────────────────────────
+  //  CONTENT — build Three.js group for a given spot name
+  // ─────────────────────────────────────────────────────────────
+  function applyBeeTextures(model) {
+    const tl   = new THREE.TextureLoader()
+    const base = './bee/Robotic_Bee_PBR_Textures_CS_v13b/beecolore_'
+    const seen = new Set()
+    model.traverse(obj => {
+      if (!obj.isMesh) return
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+      mats.forEach(mat => {
+        if (seen.has(mat.uuid)) return
+        seen.add(mat.uuid)
+        const part = BEE_MAT_PART[mat.name]
+        if (!part) return
+        const bc = tl.load(base + part + '_BaseColor.png')
+        bc.colorSpace = THREE.SRGBColorSpace
+        mat.map          = bc
+        mat.normalMap    = tl.load(base + part + '_Normal.png')
+        mat.roughnessMap = tl.load(base + part + '_Roughness.png')
+        mat.metalnessMap = tl.load(base + part + '_Metallic.png')
+        mat.metalness    = 1.0
+        mat.roughness    = 1.0
+        if (BEE_HAS_EMISSIVE.has(part)) {
+          mat.emissiveMap       = tl.load(base + part + '_Emissive.png')
+          mat.emissive          = new THREE.Color(1, 1, 1)
+          mat.emissiveIntensity = 0.8
+        }
+        mat.needsUpdate = true
+      })
+    })
+  }
+
+  function buildSpotContent(spotName, parentScene) {
+    const spot   = SPOTS[spotName]
+    const group  = new THREE.Group()
+    group.visible = false
+    parentScene.add(group)
+
+    const loader = new THREE.GLTFLoader()
+    loader.load(spot.glb, gltf => {
+      const model = gltf.scene
+      const box   = new THREE.Box3().setFromObject(model)
+      const size  = new THREE.Vector3()
+      box.getSize(size)
+      model.scale.setScalar(spot.scale / Math.max(size.x, size.y, size.z))
+      box.setFromObject(model)
+      const center = new THREE.Vector3()
+      box.getCenter(center)
+      model.position.sub(center)
+      if (spot.textures) applyBeeTextures(model)
+      group.add(model)
+    }, undefined, err => console.error(`GLB load error (${spotName}):`, err))
+
+    return group
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  WEATHER LIGHTING (same as alpha)
+  // ─────────────────────────────────────────────────────────────
+  async function getWeatherLighting() {
+    const NEUTRAL = {aC:0xffffff,aI:0.4,dC:0xffffff,dI:0.9,fC:0xffffff,fI:0.2,dP:[2,4,3]}
+    try {
+      const pos  = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000}))
+      const {latitude:lat,longitude:lon} = pos.coords
+      const api  = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=weathercode,is_day,cloudcover&timezone=auto`
+      const data = await (await fetch(api)).json()
+      const {weathercode:wc,is_day,cloudcover:cc} = data.current
+      if (!is_day) return wc<=2 ? {aC:0x0d1b35,aI:0.20,dC:0x4466bb,dI:0.35,fC:0x203560,fI:0.10,dP:[1,5,2]} : {aC:0x0a1020,aI:0.12,dC:0x202d40,dI:0.15,fC:0x182030,fI:0.08,dP:[2,4,3]}
+      if (wc>=95) return {aC:0x2e3540,aI:0.28,dC:0x404d5c,dI:0.18,fC:0x304050,fI:0.10,dP:[1,3,2]}
+      if (wc>=51) return {aC:0x7a8fa8,aI:0.38,dC:0x5878a0,dI:0.28,fC:0x4a6890,fI:0.14,dP:[1,4,2]}
+      if (wc===3||cc>70) return {aC:0xd0dce8,aI:0.65,dC:0xbcccd8,dI:0.38,fC:0xc8d4dc,fI:0.25,dP:[2,5,3]}
+      if (cc>30) return {aC:0xe8eff8,aI:0.55,dC:0xd4e4f0,dI:0.80,fC:0xc0d4e8,fI:0.20,dP:[2,5,3]}
+      return {aC:0xfff5d6,aI:0.60,dC:0xfff0b0,dI:1.40,fC:0x87ceeb,fI:0.15,dP:[2,6,2]}
+    } catch { return NEUTRAL }
+  }
+
+  function applyLighting(scene, lt) {
+    scene.add(new THREE.AmbientLight(lt.aC, lt.aI))
+    const dir = new THREE.DirectionalLight(lt.dC, lt.dI)
+    dir.position.set(...lt.dP)
+    scene.add(dir)
+    const fill = new THREE.DirectionalLight(lt.fC, lt.fI)
+    fill.position.set(-lt.dP[0], lt.dP[1] * 0.5, -lt.dP[2])
+    scene.add(fill)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ANIMATION LOOP — hover bob
+  // ─────────────────────────────────────────────────────────────
+  let activeGroups = {}  // spotName → THREE.Group
+  let clock
+
+  function animateGroups(t) {
+    for (const [, group] of Object.entries(activeGroups)) {
+      if (group.visible) {
+        group.position.y = Math.sin(t * 1.2) * 0.04
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  8th Wall PIPELINE MODULE
+  // ─────────────────────────────────────────────────────────────
+  const camdPipelineModule = () => {
+    let scene, camera, renderer
+
+    const onStart = ({canvas: cvs}) => {
+      const xrScene = XR8.Threejs.xrScene()
+      scene    = xrScene.scene
+      camera   = xrScene.camera
+      renderer = xrScene.renderer
+      clock    = new THREE.Clock()
+
+      // Build all spot content groups (hidden until marker found)
+      for (const name of Object.keys(SPOTS)) {
+        activeGroups[name] = buildSpotContent(name, scene)
+      }
+
+      // Apply weather lighting
+      getWeatherLighting().then(lt => applyLighting(scene, lt))
+
+      // Prevent scroll/pinch on canvas
+      cvs.addEventListener('touchmove', e => e.preventDefault(), {passive: false})
+
+      // Sync camera
+      XR8.XrController.updateCameraProjectionMatrix({
+        origin: camera.position,
+        facing: camera.quaternion,
+      })
+    }
+
+    // Marker detected — position content at marker pose, make visible, enable SLAM anchor
+    const onImageFound = ({detail}) => {
+      const {name, position, rotation, scale} = detail
+      const group = activeGroups[name]
+      if (!group) return
+
+      group.position.copy(position)
+      group.quaternion.copy(rotation)
+      // scale from 8th Wall is physical marker size in metres; we use our own model scale
+      group.visible = true
+
+      // Show UI
+      scanRings.classList.add('hidden')
+      scanHint.classList.add('hidden')
+      spotLabel.textContent = SPOTS[name]?.label || name
+      spotLabel.classList.add('visible')
+      lockBadge.classList.add('active')
+    }
+
+    // Marker updated — keep content tracking live marker (SLAM continues when lost)
+    const onImageUpdated = ({detail}) => {
+      const {name, position, rotation} = detail
+      const group = activeGroups[name]
+      if (!group) return
+      group.position.copy(position)
+      group.quaternion.copy(rotation)
+    }
+
+    // Marker lost — 8th Wall SLAM takes over, content stays in world space
+    const onImageLost = ({detail}) => {
+      // SLAM keeps the content anchored — we just hide the scan rings hint
+      // group.visible stays true — SLAM handles the rest
+      console.log('Marker lost, SLAM anchoring active:', detail.name)
+    }
+
+    const onRender = () => {
+      if (clock) animateGroups(clock.getElapsedTime())
+    }
+
+    return {
+      name: 'camd-pipeline',
+      onStart,
+      onRender,
+      listeners: [
+        {event: 'reality.imagefound',   process: onImageFound},
+        {event: 'reality.imageupdated', process: onImageUpdated},
+        {event: 'reality.imagelost',    process: onImageLost},
+      ],
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  START / STOP
+  // ─────────────────────────────────────────────────────────────
+  async function startAR() {
+    // iOS motion permission
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      await DeviceOrientationEvent.requestPermission().catch(() => {})
+    }
+
+    // Trigger geolocation (for weather lighting) without waiting
+    const weatherReady = getWeatherLighting()
+
+    splash.style.display = 'none'
+    loadingOverlay.classList.remove('hidden')
+
+    // Load image target JSON files
+    const targetData = await Promise.all(
+      ['boston001', 'boston002', 'boston003'].map(name =>
+        fetch(`./image-targets/${name}.json`).then(r => r.json())
+      )
+    )
+
+    // Wait for XR8 to be ready, then configure and start
+    const initXR = () => {
+      XR8.XrController.configure({
+        imageTargetData: targetData,
+        // disableWorldTracking: false (keep SLAM active — default)
+      })
+
+      XR8.addCameraPipelineModules([
+        XR8.GlTextureRenderer.pipelineModule(),   // draws camera feed to canvas
+        XR8.Threejs.pipelineModule(),              // sets up Three.js scene
+        XR8.XrController.pipelineModule(),         // SLAM + image tracking
+        camdPipelineModule(),                      // our content + lighting
+      ])
+
+      XR8.run({canvas})
+
+      loadingOverlay.classList.add('hidden')
+      canvas.style.display = 'block'
+      arUI.style.display = 'block'
+      xrRunning = true
+    }
+
+    if (window.XR8) {
+      initXR()
+    } else {
+      window.addEventListener('xrloaded', initXR, {once: true})
+    }
+  }
+
+  function stopAR() {
+    if (!xrRunning) return
+    XR8.stop()
+    xrRunning = false
+
+    canvas.style.display = 'none'
+    arUI.style.display = 'none'
+    activeGroups = {}
+    splash.style.display = 'flex'
+    scanRings.classList.remove('hidden')
+    scanHint.classList.remove('hidden')
+    spotLabel.classList.remove('visible')
+    lockBadge.classList.remove('active')
+  }
+  </script>
+</body>
+</html>
