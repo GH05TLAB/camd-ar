@@ -436,7 +436,8 @@
         markerVisibles[i] = true;
         activeContent = contents[i];
 
-        if (!worldLocked[i]) {
+        // Anchor 0 (marker 001): strict Mind AR — never world-lock, stays tied to marker
+        if (i !== 0 && !worldLocked[i]) {
           worldLocked[i] = true;
           lockBadge.classList.add('active');
         }
@@ -451,6 +452,17 @@
       };
       anchor.onTargetLost = () => {
         markerVisibles[i] = false;
+        if (i === 0) {
+          // Anchor 0 (marker 001): strict Mind AR — hide immediately when marker is lost
+          frozenGroups[0].visible = false;
+          if (activeContent === contents[0]) {
+            activeContent = null;
+            spotLabel.classList.remove('visible');
+            scanHint.classList.remove('hidden');
+            scanRings.classList.remove('hidden');
+          }
+          return;
+        }
         if (!worldLocked[i]) {
           // Not yet placed — normal 3 s despawn
           despawnTimers[i] = setTimeout(() => {
