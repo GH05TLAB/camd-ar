@@ -411,7 +411,7 @@
     // loss, which would hide our content. By keeping content outside anchor.group
     // we control visibility ourselves and can keep models visible after marker loss.
     const spotNames  = ['BOSTON001TW', 'BOSTON002TW', 'BOSTON003TW'];
-    const builders   = [buildBoston002TW, buildAerialCompanion, buildBoston003TW];
+    const builders   = [buildBoston002TW, buildBoston002TW, buildBoston003TW];
     const anchors    = [0, 1, 2].map(i => mindarThree.addAnchor(i));
     const contents   = [null, null, null];
     const frozenGroups = anchors.map(() => {
