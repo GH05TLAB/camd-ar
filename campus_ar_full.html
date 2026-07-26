@@ -126,7 +126,12 @@
   const spotLabel    = document.getElementById('spot-label');
   const lockBadge    = document.getElementById('world-lock-badge');
   startBtn.addEventListener('click', startAR);
-  stopBtn.addEventListener('click',  stopAR);
+  stopBtn.addEventListener('click', async () => {
+    await stopAR();
+    window.close();
+    // Fallback: if browser blocks close (tab not opened by script), go back
+    setTimeout(() => history.length > 1 ? history.back() : location.replace('about:blank'), 300);
+  });
 
   // ══════════════════════════════════════════════════════════════
   //  WORLD ANCHOR — device-orientation-based camera rotation

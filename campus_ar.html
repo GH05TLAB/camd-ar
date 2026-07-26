@@ -125,7 +125,12 @@
   const scanRings    = document.getElementById('scan-rings');
   const spotLabel    = document.getElementById('spot-label');
   startBtn.addEventListener('click', startAR);
-  stopBtn.addEventListener('click',  stopAR);
+  stopBtn.addEventListener('click', async () => {
+    await stopAR();
+    window.close();
+    // Fallback: if browser blocks close (tab not opened by script), go back
+    setTimeout(() => history.length > 1 ? history.back() : location.replace('about:blank'), 300);
+  });
 
   // ══════════════════════════════════════════════════════════════
   //  CONTENT BUILDERS — one per spot
