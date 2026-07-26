@@ -128,9 +128,9 @@
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click', async () => {
     await stopAR();
-    window.close();
-    // Fallback: if browser blocks close (tab not opened by script), go back
-    setTimeout(() => history.length > 1 ? history.back() : location.replace('about:blank'), 300);
+    window.open('camera://');          // open native camera app
+    window.close();                    // close this tab
+    setTimeout(() => { window.location.href = 'camera://'; }, 300); // fallback if close blocked
   });
 
   // ══════════════════════════════════════════════════════════════

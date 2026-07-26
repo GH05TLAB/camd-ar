@@ -115,6 +115,24 @@
 
   let mindarThree = null, clock = null;
 
+  // Grace-period + gyroscope state (module-level so stopAR can reset them)
+  const QUAT_SCREEN     = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  const QUAT_SCREEN_INV = QUAT_SCREEN.clone().invert();
+  let graceTimer  = null, inGrace = false;
+  let lockCamQuat = null, lockDevQuat = null;
+  const currDevQuat = new THREE.Quaternion();
+  const _deltaQuat  = new THREE.Quaternion();
+
+  function onDeviceOrient(e) {
+    if (e.alpha == null) return;
+    currDevQuat.setFromEuler(new THREE.Euler(
+      THREE.MathUtils.degToRad(e.beta),
+      THREE.MathUtils.degToRad(e.alpha),
+      -THREE.MathUtils.degToRad(e.gamma),
+      'YXZ'
+    ));
+  }
+
   const splash       = document.getElementById('splash');
   const arContainer  = document.getElementById('ar-container');
   const arUI         = document.getElementById('ar-ui');
@@ -127,9 +145,9 @@
   startBtn.addEventListener('click', startAR);
   stopBtn.addEventListener('click', async () => {
     await stopAR();
-    window.close();
-    // Fallback: if browser blocks close (tab not opened by script), go back
-    setTimeout(() => history.length > 1 ? history.back() : location.replace('about:blank'), 300);
+    window.open('camera://');          // open native camera app
+    window.close();                    // close this tab
+    setTimeout(() => { window.location.href = 'camera://'; }, 300); // fallback if close blocked
   });
 
   // ══════════════════════════════════════════════════════════════
@@ -226,6 +244,10 @@
 
     anchors.forEach((anchor, i) => {
       anchor.onTargetFound = () => {
+        // Cancel any active grace period
+        if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+        inGrace = false; lockCamQuat = null; lockDevQuat = null;
+        window.removeEventListener('deviceorientation', onDeviceOrient);
         if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
         frozenGroups[i].visible = true;
         markerVisibles[i] = true;
@@ -237,13 +259,22 @@
       };
       anchor.onTargetLost = () => {
         markerVisibles[i] = false;
-        frozenGroups[i].visible = false;
-        if (activeContent === contents[i]) {
-          activeContent = null;
-          spotLabel.classList.remove('visible');
-          scanHint.classList.remove('hidden');
-          scanRings.classList.remove('hidden');
-        }
+        // Start 8-second grace period: content stays visible, gyroscope drives camera
+        lockCamQuat = camera.quaternion.clone();
+        lockDevQuat = currDevQuat.clone();
+        inGrace = true;
+        window.addEventListener('deviceorientation', onDeviceOrient);
+        graceTimer = setTimeout(() => {
+          inGrace = false; graceTimer = null;
+          frozenGroups[i].visible = false;
+          window.removeEventListener('deviceorientation', onDeviceOrient);
+          if (activeContent === contents[i]) {
+            activeContent = null;
+            spotLabel.classList.remove('visible');
+            scanHint.classList.remove('hidden');
+            scanRings.classList.remove('hidden');
+          }
+        }, 8000);
       };
     });
 
@@ -282,12 +313,23 @@
         frozenGroups[0].quaternion.copy(_quat);
         frozenGroups[0].scale.copy(_scl);
       }
+      // During grace period: apply gyroscope delta to camera orientation
+      if (inGrace && lockCamQuat && lockDevQuat) {
+        _deltaQuat.copy(lockDevQuat).invert().multiply(currDevQuat);
+        camera.quaternion.copy(lockCamQuat)
+          .multiply(QUAT_SCREEN)
+          .multiply(_deltaQuat)
+          .multiply(QUAT_SCREEN_INV);
+      }
       contents.forEach(c => { if (c) c.rotation.y += 0.002; });
       renderer.render(scene, camera);
     });
   }
 
   async function stopAR() {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    inGrace = false; lockCamQuat = null; lockDevQuat = null;
+    window.removeEventListener('deviceorientation', onDeviceOrient);
     if (mindarThree) {
       try { await mindarThree.stop(); } catch(e) {}
       mindarThree.renderer.setAnimationLoop(null);
