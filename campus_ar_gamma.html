@@ -210,10 +210,11 @@
         const box = new THREE.Box3().setFromObject(content);
         const sz  = new THREE.Vector3();
         box.getSize(sz);
-        content.scale.setScalar(0.3 / Math.max(sz.x, sz.y, sz.z));
+        content.scale.setScalar(0.6 / Math.max(sz.x, sz.y, sz.z));
         const ctr = new THREE.Vector3();
         new THREE.Box3().setFromObject(content).getCenter(ctr);
         content.position.sub(ctr.multiplyScalar(content.scale.x));
+        content.rotation.z = -Math.PI / 2; // correct 90° tilt from GLB default orientation
         content.visible = false;
         scene.add(content);
       });
