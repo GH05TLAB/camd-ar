@@ -6,6 +6,7 @@
   <title>CAMD AR — Campus Experience</title>
 
   <link rel="preload" href="./targets.mind" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="./honeybee.glb" as="fetch" crossorigin="anonymous">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js">
 
@@ -289,10 +290,12 @@
 
     // Single anchor: marker 002 (index 1 in targets.mind), world-locked.
     const anchor = mindarThree.addAnchor(1);
-    let content = null;
     const frozenGroup = new THREE.Group();
     frozenGroup.visible = false;
     scene.add(frozenGroup);
+    // Start loading GLB immediately (in parallel with mindarThree.start) so it's
+    // ready the moment the user finds the marker.
+    let content = buildHoneybee(frozenGroup);
     let markerVisible = false;
 
     const _pos  = new THREE.Vector3();
@@ -300,7 +303,6 @@
     const _scl  = new THREE.Vector3();
 
     anchor.onTargetFound = () => {
-      if (!content) content = buildHoneybee(frozenGroup);
       frozenGroup.visible = true;
       markerVisible = true;
       lockCamQuat = null;

@@ -6,6 +6,7 @@
   <title>CAMD AR — Campus Experience</title>
 
   <link rel="preload" href="./targets.mind" as="fetch" crossorigin="anonymous">
+  <link rel="preload" href="./honeybee.glb" as="fetch" crossorigin="anonymous">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js">
 
@@ -238,6 +239,9 @@ const splash       = document.getElementById('splash');
       scene.add(fg);
       return fg;
     });
+    // Start loading GLB immediately (in parallel with mindarThree.start) so it's
+    // ready the moment the user finds the marker.
+    anchors.forEach((_, i) => { contents[i] = builders[i](frozenGroups[i]); });
     const markerVisibles = [false];
     // Reusable decompose targets — avoids per-frame GC pressure
     const _pos  = new THREE.Vector3();
@@ -247,7 +251,6 @@ const splash       = document.getElementById('splash');
 
     anchors.forEach((anchor, i) => {
       anchor.onTargetFound = () => {
-        if (!contents[i]) contents[i] = builders[i](frozenGroups[i]);
         frozenGroups[i].visible = true;
         markerVisibles[i] = true;
         activeContent = contents[i];

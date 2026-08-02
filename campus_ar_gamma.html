@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>CAMD AR — Campus Experience</title>
 
+  <link rel="preload" href="./honeybee.glb" as="fetch" crossorigin="anonymous">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
 
   <script type="importmap">
@@ -110,6 +111,11 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+  // Begin downloading GLB immediately on page load so it's cached when AR starts
+  const _glbReady = new Promise((resolve, reject) => {
+    new GLTFLoader().load('./honeybee.glb', resolve, undefined, reject);
+  });
+
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
   const arUI           = document.getElementById('ar-ui');
@@ -210,21 +216,19 @@
       fill.position.set(-1, 1, -1);
       scene.add(ambient, dir, fill);
 
-      // 5. Load model
-      new GLTFLoader().load('./honeybee.glb', (gltf) => {
+      // 5. Load model — reuses the download started at page load
+      _glbReady.then((gltf) => {
+        if (!scene) return; // AR stopped before model resolved
         content = gltf.scene;
         const box = new THREE.Box3().setFromObject(content);
         const sz  = new THREE.Vector3();
         box.getSize(sz);
         content.scale.setScalar(1.4 / Math.max(sz.x, sz.y, sz.z));
-        // Correct orientation: model exported Z-up → rotate to Y-up (Three.js world)
-        content.rotation.x = -Math.PI / 2;
-        // After rotation, re-measure and lift so feet sit at y = 0
         const box2 = new THREE.Box3().setFromObject(content);
         content.position.y -= box2.min.y;
         content.visible = false;
         scene.add(content);
-      });
+      }).catch((err) => console.error('honeybee GLB load failed:', err));
 
       // 6. Input
       window.addEventListener('deviceorientation', onDeviceOrient);
