@@ -236,7 +236,6 @@
 
       // 7. Render loop
       renderer.setAnimationLoop(() => {
-        if (placed && content) content.rotation.y += 0.01;
         renderer.render(scene, camera);
       });
 
