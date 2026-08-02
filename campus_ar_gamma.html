@@ -21,11 +21,7 @@
     :root { --red: #c8102e; --black: #1a1a1a; --white: #ffffff; }
     body { background: #000; font-family: 'Georgia', serif; color: var(--white); overflow: hidden; height: 100dvh; width: 100dvw; }
 
-    /* Camera feed — behind everything */
     #cam-feed { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: none; }
-
-    /* Three.js canvas — transparent overlay on camera */
-    #three-canvas { position: fixed; inset: 0; width: 100% !important; height: 100% !important; z-index: 2; display: none; }
 
     /* Splash */
     #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; background: var(--black); gap: 2rem; padding: 2rem; padding-top: clamp(2rem,8vh,4rem); z-index: 100; }
@@ -49,7 +45,7 @@
     @keyframes loader { 0%{width:0%;margin-left:0%} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }
     .loader-text { font-size: 0.72rem; font-family: 'Courier New', monospace; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.5; }
 
-    /* AR UI overlay */
+    /* AR UI */
     #ar-ui { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
     #ar-header { position: absolute; top: 0; left: 0; right: 0; padding: 1rem 1.2rem; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
     #ar-label { font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; font-family: 'Courier New', monospace; opacity: 0.8; }
@@ -63,7 +59,6 @@
 <body>
 
   <video id="cam-feed" autoplay playsinline muted></video>
-  <canvas id="three-canvas"></canvas>
 
   <div id="loading-overlay" class="hidden">
     <div class="splash-logo" style="width:60px;height:60px;"><span style="font-size:1.2rem">C</span><span style="font-size:1.2rem">A</span><span style="font-size:1.2rem">M</span><span style="font-size:1.2rem">D</span></div>
@@ -120,121 +115,29 @@
   const arUI           = document.getElementById('ar-ui');
   const loadingOverlay = document.getElementById('loading-overlay');
   const camFeed        = document.getElementById('cam-feed');
-  const threeCanvas    = document.getElementById('three-canvas');
   const scanHint       = document.getElementById('scan-hint');
   const spotLabel      = document.getElementById('spot-label');
 
-  let renderer  = null;
-  let scene     = null;
-  let camera    = null;
-  let content   = null;
-  let placed    = false;
-  let stream    = null;
-  let animId    = null;
+  let renderer = null;
+  let scene    = null;
+  let camera   = null;
+  let content  = null;
+  let placed   = false;
+  let stream   = null;
 
-  // Gyroscope state — same quaternion math as the beta world-lock
   const QUAT_SCREEN     = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
   const QUAT_SCREEN_INV = QUAT_SCREEN.clone().invert();
   const deviceQuat      = new THREE.Quaternion();
 
   function onDeviceOrient(e) {
-    if (e.alpha == null) return;
+    if (e.alpha == null || !camera) return;
     deviceQuat.setFromEuler(new THREE.Euler(
       THREE.MathUtils.degToRad(e.beta),
       THREE.MathUtils.degToRad(e.alpha),
       -THREE.MathUtils.degToRad(e.gamma),
       'YXZ'
     ));
-    if (camera) {
-      camera.quaternion.copy(QUAT_SCREEN).multiply(deviceQuat).multiply(QUAT_SCREEN_INV);
-    }
-  }
-
-  document.getElementById('start-btn').addEventListener('click', startAR);
-
-  document.getElementById('stop-btn').addEventListener('click', async () => {
-    await stopAR();
-    splash.style.display = 'none';
-    farewell.style.display = 'flex';
-  });
-
-  document.getElementById('close-btn').addEventListener('click', () => { window.close(); });
-
-  // ══════════════════════════════════════════════════════════════
-  //  AR START / STOP
-  // ══════════════════════════════════════════════════════════════
-
-  async function startAR() {
-    splash.style.display = 'none';
-    loadingOverlay.classList.remove('hidden');
-
-    try {
-      // iOS motion permission
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        await DeviceOrientationEvent.requestPermission().catch(() => {});
-      }
-
-      // Camera — do NOT await metadata; it may have already fired before we attach the handler
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: false,
-      });
-      camFeed.srcObject = stream;
-      camFeed.style.display = 'block';
-      camFeed.play().catch(() => {});
-    } catch (err) {
-      loadingOverlay.classList.add('hidden');
-      splash.style.display = 'flex';
-      alert('Could not access camera. Please allow camera access and try again.');
-      return;
-    }
-
-    // Three.js
-    renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
-    renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    threeCanvas.style.display = 'block';
-
-    scene  = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 1.6, 0);
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(1, 3, 2);
-    scene.add(dir);
-    scene.add(Object.assign(new THREE.DirectionalLight(0xffffff, 0.2), { position: new THREE.Vector3(-1, 1, -1) }));
-
-    // Load honeybee
-    new GLTFLoader().load('./honeybee.glb', (gltf) => {
-      content = gltf.scene;
-      const box = new THREE.Box3().setFromObject(content);
-      const sz  = new THREE.Vector3();
-      box.getSize(sz);
-      content.scale.setScalar(0.3 / Math.max(sz.x, sz.y, sz.z));
-      const ctr = new THREE.Vector3();
-      new THREE.Box3().setFromObject(content).getCenter(ctr);
-      content.position.sub(ctr.multiplyScalar(content.scale.x));
-      content.visible = false;
-      scene.add(content);
-    }, undefined, (e) => console.error('GLB load error:', e));
-
-    // Gyroscope
-    window.addEventListener('deviceorientation', onDeviceOrient);
-
-    // Tap to place — fires once, puts object 2m in front of camera
-    threeCanvas.addEventListener('click', onTap, { once: false });
-
-    // Animation loop
-    renderer.setAnimationLoop(() => {
-      if (placed && content) content.rotation.y += 0.01;
-      renderer.render(scene, camera);
-    });
-
-    loadingOverlay.classList.add('hidden');
-    arUI.style.display = 'block';
+    camera.quaternion.copy(QUAT_SCREEN).multiply(deviceQuat).multiply(QUAT_SCREEN_INV);
   }
 
   function onTap() {
@@ -247,16 +150,115 @@
     scanHint.classList.add('hidden');
   }
 
+  document.getElementById('start-btn').addEventListener('click', startAR);
+  document.getElementById('stop-btn').addEventListener('click', async () => {
+    await stopAR();
+    splash.style.display = 'none';
+    farewell.style.display = 'flex';
+  });
+  document.getElementById('close-btn').addEventListener('click', () => { window.close(); });
+
+  // ══════════════════════════════════════════════════════════════
+  //  AR START / STOP  — entire body in one try/catch so loading
+  //  is always hidden even when an unexpected error occurs
+  // ══════════════════════════════════════════════════════════════
+
+  async function startAR() {
+    splash.style.display = 'none';
+    loadingOverlay.classList.remove('hidden');
+
+    try {
+      // 1. iOS motion permission
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        await DeviceOrientationEvent.requestPermission().catch(() => {});
+      }
+
+      // 2. Camera stream
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      camFeed.srcObject = stream;
+      camFeed.style.display = 'block';
+      camFeed.play().catch(() => {});
+
+      // 3. Three.js — renderer creates its own canvas so display:none can't cause a WebGL failure
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setClearColor(0x000000, 0);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const cnv = renderer.domElement;
+      Object.assign(cnv.style, { position: 'fixed', inset: '0', width: '100%', height: '100%', zIndex: '2' });
+      document.body.appendChild(cnv);
+
+      // 4. Scene
+      scene  = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 1.6, 0);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+      const dir     = new THREE.DirectionalLight(0xffffff, 0.9);
+      dir.position.set(1, 3, 2);
+      const fill    = new THREE.DirectionalLight(0xffffff, 0.2);
+      fill.position.set(-1, 1, -1);
+      scene.add(ambient, dir, fill);
+
+      // 5. Load model
+      new GLTFLoader().load('./honeybee.glb', (gltf) => {
+        content = gltf.scene;
+        const box = new THREE.Box3().setFromObject(content);
+        const sz  = new THREE.Vector3();
+        box.getSize(sz);
+        content.scale.setScalar(0.3 / Math.max(sz.x, sz.y, sz.z));
+        const ctr = new THREE.Vector3();
+        new THREE.Box3().setFromObject(content).getCenter(ctr);
+        content.position.sub(ctr.multiplyScalar(content.scale.x));
+        content.visible = false;
+        scene.add(content);
+      });
+
+      // 6. Input
+      window.addEventListener('deviceorientation', onDeviceOrient);
+      cnv.addEventListener('click', onTap);
+
+      // 7. Render loop
+      renderer.setAnimationLoop(() => {
+        if (placed && content) content.rotation.y += 0.01;
+        renderer.render(scene, camera);
+      });
+
+      // 8. Show AR — loading disappears here
+      loadingOverlay.classList.add('hidden');
+      arUI.style.display = 'block';
+
+    } catch (err) {
+      // Always hide loading and return to splash on any failure
+      loadingOverlay.classList.add('hidden');
+      splash.style.display = 'flex';
+      const msg = err.name === 'NotAllowedError'
+        ? 'Camera access denied. Please allow camera and try again.'
+        : 'Could not start AR: ' + (err.message || err);
+      alert(msg);
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      if (renderer) { renderer.dispose(); if (renderer.domElement.parentNode) renderer.domElement.remove(); renderer = null; }
+      camFeed.srcObject = null;
+      camFeed.style.display = 'none';
+    }
+  }
+
   async function stopAR() {
     renderer?.setAnimationLoop(null);
+    window.removeEventListener('deviceorientation', onDeviceOrient);
+    if (renderer?.domElement) {
+      renderer.domElement.removeEventListener('click', onTap);
+      if (renderer.domElement.parentNode) renderer.domElement.remove();
+    }
     renderer?.dispose();
     renderer = null;
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-    window.removeEventListener('deviceorientation', onDeviceOrient);
-    threeCanvas.removeEventListener('click', onTap);
     camFeed.srcObject = null;
     camFeed.style.display = 'none';
-    threeCanvas.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
     placed = false; content = null; scene = null; camera = null;
