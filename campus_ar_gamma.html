@@ -142,8 +142,14 @@
 
   function onTap() {
     if (!content || placed) return;
+    // Project forward direction onto horizontal plane so bee lands on the ground
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    content.position.copy(camera.position).addScaledVector(dir, 2.0);
+    dir.y = 0; dir.normalize();
+    content.position.set(
+      camera.position.x + dir.x * 1.8,
+      0,
+      camera.position.z + dir.z * 1.8
+    );
     content.visible = true;
     placed = true;
     spotLabel.classList.add('visible');
@@ -210,11 +216,12 @@
         const box = new THREE.Box3().setFromObject(content);
         const sz  = new THREE.Vector3();
         box.getSize(sz);
-        content.scale.setScalar(0.6 / Math.max(sz.x, sz.y, sz.z));
-        const ctr = new THREE.Vector3();
-        new THREE.Box3().setFromObject(content).getCenter(ctr);
-        content.position.sub(ctr.multiplyScalar(content.scale.x));
-        content.rotation.z = -Math.PI / 2; // correct 90° tilt from GLB default orientation
+        content.scale.setScalar(1.4 / Math.max(sz.x, sz.y, sz.z));
+        // Correct orientation: model exported Z-up → rotate to Y-up (Three.js world)
+        content.rotation.x = -Math.PI / 2;
+        // After rotation, re-measure and lift so feet sit at y = 0
+        const box2 = new THREE.Box3().setFromObject(content);
+        content.position.y -= box2.min.y;
         content.visible = false;
         scene.add(content);
       });
