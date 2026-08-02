@@ -228,7 +228,7 @@
         content.scale.setScalar(1.8 / Math.max(size.x, size.y, size.z));
 
         // Model is Z-rotated 90° in its source file — stand it upright
-        content.rotation.z = Math.PI / 2;
+        content.rotation.z = -Math.PI / 2;
 
         // Re-measure after scaling + rotation: center X/Z, lift feet to y = 0
         box.setFromObject(content);
