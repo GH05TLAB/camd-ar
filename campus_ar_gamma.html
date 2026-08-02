@@ -111,11 +111,6 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-  // Begin downloading GLB immediately on page load so it's cached when AR starts
-  const _glbReady = new Promise((resolve, reject) => {
-    new GLTFLoader().load('./honeybee.glb', resolve, undefined, reject);
-  });
-
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
   const arUI           = document.getElementById('ar-ui');
@@ -127,7 +122,7 @@
   let renderer = null;
   let scene    = null;
   let camera   = null;
-  let content  = null;
+  let content  = null;  // wrapper Group — moved by onTap
   let placed   = false;
   let stream   = null;
 
@@ -151,9 +146,10 @@
     // Project forward direction onto horizontal plane so bee lands on the ground
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     dir.y = 0; dir.normalize();
+    // content is a wrapper Group; its Y is the half-height so feet sit at y = 0
     content.position.set(
       camera.position.x + dir.x * 1.8,
-      0,
+      content.userData.liftY,
       camera.position.z + dir.z * 1.8
     );
     content.visible = true;
@@ -216,31 +212,32 @@
       fill.position.set(-1, 1, -1);
       scene.add(ambient, dir, fill);
 
-      // 5. Load model — reuses the download started at page load
-      _glbReady.then((gltf) => {
-        if (!scene) return; // AR stopped before model resolved
-        content = gltf.scene;
+      // 5. Load model — browser cache serves the preloaded GLB instantly
+      new GLTFLoader().load('./honeybee.glb', (gltf) => {
+        if (!scene) return;
+        const model = gltf.scene;
 
-        // Match alpha/beta builder exactly: uniform scale, then center
-        const box = new THREE.Box3().setFromObject(content);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        content.scale.setScalar(1.8 / Math.max(size.x, size.y, size.z));
+        // Scale to match alpha/beta (no rotation — model is Y-up natively)
+        const box = new THREE.Box3().setFromObject(model);
+        const sz  = new THREE.Vector3();
+        box.getSize(sz);
+        model.scale.setScalar(1.8 / Math.max(sz.x, sz.y, sz.z));
 
-        // Model is Z-rotated 90° in its source file — stand it upright
-        content.rotation.z = -Math.PI / 2;
-
-        // Re-measure after scaling + rotation: center X/Z, lift feet to y = 0
-        box.setFromObject(content);
+        // Re-measure after scale; center model within the wrapper group
+        box.setFromObject(model);
+        const sz2 = new THREE.Vector3();
+        box.getSize(sz2);
         const center = new THREE.Vector3();
         box.getCenter(center);
-        content.position.x -= center.x;
-        content.position.z -= center.z;
-        content.position.y -= box.min.y;
+        model.position.sub(center);   // center at wrapper origin (same as alpha/beta)
 
+        // Wrapper group: onTap moves this; its Y lifts feet to world y = 0
+        content = new THREE.Group();
+        content.userData.liftY = sz2.y / 2;
+        content.add(model);
         content.visible = false;
         scene.add(content);
-      }).catch((err) => console.error('honeybee GLB load failed:', err));
+      }, undefined, (err) => console.error('honeybee GLB load failed:', err));
 
       // 6. Input
       window.addEventListener('deviceorientation', onDeviceOrient);
@@ -248,6 +245,7 @@
 
       // 7. Render loop
       renderer.setAnimationLoop(() => {
+        if (placed && content) content.rotation.y += 0.01;
         renderer.render(scene, camera);
       });
 
