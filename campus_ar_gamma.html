@@ -168,29 +168,27 @@
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
 
-    // iOS motion permission
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      await DeviceOrientationEvent.requestPermission().catch(() => {});
-    }
-
-    // Camera
     try {
+      // iOS motion permission
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        await DeviceOrientationEvent.requestPermission().catch(() => {});
+      }
+
+      // Camera — do NOT await metadata; it may have already fired before we attach the handler
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { facingMode: 'environment' },
         audio: false,
       });
+      camFeed.srcObject = stream;
+      camFeed.style.display = 'block';
+      camFeed.play().catch(() => {});
     } catch (err) {
       loadingOverlay.classList.add('hidden');
       splash.style.display = 'flex';
       alert('Could not access camera. Please allow camera access and try again.');
       return;
     }
-
-    camFeed.srcObject = stream;
-    camFeed.style.display = 'block';
-    await new Promise(res => { camFeed.onloadedmetadata = res; });
-    camFeed.play();
 
     // Three.js
     renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
