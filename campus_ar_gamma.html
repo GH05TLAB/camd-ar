@@ -237,7 +237,16 @@
         content.add(model);
         content.visible = false;
         scene.add(content);
-      }, undefined, (err) => console.error('honeybee GLB load failed:', err));
+
+        // Show AR only after model is ready — so onTap always finds content != null
+        loadingOverlay.classList.add('hidden');
+        arUI.style.display = 'block';
+      }, undefined, (err) => {
+        console.error('honeybee GLB load failed:', err);
+        loadingOverlay.classList.add('hidden');
+        splash.style.display = 'flex';
+        alert('Could not load 3D model. Please try again.');
+      });
 
       // 6. Input
       window.addEventListener('deviceorientation', onDeviceOrient);
@@ -248,10 +257,6 @@
         if (placed && content) content.rotation.y += 0.01;
         renderer.render(scene, camera);
       });
-
-      // 8. Show AR — loading disappears here
-      loadingOverlay.classList.add('hidden');
-      arUI.style.display = 'block';
 
     } catch (err) {
       // Always hide loading and return to splash on any failure
