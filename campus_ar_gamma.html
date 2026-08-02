@@ -19,9 +19,13 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --red: #c8102e; --black: #1a1a1a; --white: #ffffff; }
-    body { background: var(--black); font-family: 'Georgia', serif; color: var(--white); overflow: hidden; height: 100dvh; width: 100dvw; }
-    #ar-container { position: fixed; inset: 0; display: none; }
-    #ar-container canvas { position: fixed; inset: 0; width: 100% !important; height: 100% !important; }
+    body { background: #000; font-family: 'Georgia', serif; color: var(--white); overflow: hidden; height: 100dvh; width: 100dvw; }
+
+    /* Camera feed — behind everything */
+    #cam-feed { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: none; }
+
+    /* Three.js canvas — transparent overlay on camera */
+    #three-canvas { position: fixed; inset: 0; width: 100% !important; height: 100% !important; z-index: 2; display: none; }
 
     /* Splash */
     #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; background: var(--black); gap: 2rem; padding: 2rem; padding-top: clamp(2rem,8vh,4rem); z-index: 100; }
@@ -31,11 +35,19 @@
     #start-btn:hover { background: #a50d26; }
     #start-btn:active { transform: scale(0.97); }
 
-    /* Farewell screen */
+    /* Farewell */
     #farewell { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: flex-start; background: var(--black); gap: 2rem; padding: 2rem; padding-top: clamp(2rem,8vh,4rem); z-index: 150; }
     #close-btn { background: var(--red); color: var(--white); border: none; padding: 1rem 3rem; font-size: 1rem; font-family: 'Georgia', serif; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: background 0.2s, transform 0.1s; position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); }
     #close-btn:hover { background: #a50d26; }
     #close-btn:active { transform: translateX(-50%) scale(0.97); }
+
+    /* Loading */
+    #loading-overlay { position: fixed; inset: 0; background: var(--black); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; z-index: 200; }
+    #loading-overlay.hidden { display: none; }
+    .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+    .loader-fill { height: 100%; background: var(--red); animation: loader 1.8s ease-in-out infinite; }
+    @keyframes loader { 0%{width:0%;margin-left:0%} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }
+    .loader-text { font-size: 0.72rem; font-family: 'Courier New', monospace; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.5; }
 
     /* AR UI overlay */
     #ar-ui { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
@@ -44,21 +56,14 @@
     #stop-btn { pointer-events: all; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
     #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
     #scan-hint.hidden { opacity: 0; }
-
-    /* Loading overlay */
-    #loading-overlay { position: fixed; inset: 0; background: var(--black); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; z-index: 200; }
-    #loading-overlay.hidden { display: none; }
-    .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
-    .loader-fill { height: 100%; background: var(--red); animation: loader 1.8s ease-in-out infinite; }
-    @keyframes loader { 0% { width:0%;margin-left:0%; } 50% { width:60%;margin-left:20%; } 100% { width:0%;margin-left:100%; } }
-    .loader-text { font-size: 0.72rem; font-family: 'Courier New', monospace; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.5; }
-
-    /* Active spot label */
     #spot-label { position: absolute; top: 4.5rem; left: 50%; transform: translateX(-50%); background: rgba(200,16,46,0.85); color: #fff; font-family: 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 2px; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
     #spot-label.visible { opacity: 1; }
   </style>
 </head>
 <body>
+
+  <video id="cam-feed" autoplay playsinline muted></video>
+  <canvas id="three-canvas"></canvas>
 
   <div id="loading-overlay" class="hidden">
     <div class="splash-logo" style="width:60px;height:60px;"><span style="font-size:1.2rem">C</span><span style="font-size:1.2rem">A</span><span style="font-size:1.2rem">M</span><span style="font-size:1.2rem">D</span></div>
@@ -73,10 +78,10 @@
     </div>
     <div style="flex:0.4"></div>
     <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);line-height:1.65;margin:0;padding:0 2rem;text-align:center">
-      Tap "Start AR", then allow camera access and point at any flat surface to place the exhibit.
+      Tap "Start AR", then allow camera access and tap anywhere on screen to place the exhibit.
     </p>
     <p style="font-size:clamp(0.78rem,3.2vw,0.95rem);color:var(--white);opacity:0.7;line-height:1.65;margin:0;padding:0 2rem;text-align:center">
-      Tap the screen to place. Move closer or further if needed.
+      Move your phone around to view it from different angles.
     </p>
     <div style="flex:1"></div>
     <button id="start-btn" style="position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%)">START AR</button>
@@ -96,8 +101,6 @@
     <button id="close-btn">CLOSE</button>
   </div>
 
-  <div id="ar-container"></div>
-
   <div id="ar-ui">
     <div id="ar-header">
       <img src="./nu_logo.png" alt="NU" style="width:36px;height:36px;object-fit:contain;">
@@ -105,7 +108,7 @@
       <button id="stop-btn">✕ Exit</button>
     </div>
     <div id="spot-label">HONEYBEE</div>
-    <div id="scan-hint">Point camera at a flat surface</div>
+    <div id="scan-hint">Tap anywhere to place</div>
   </div>
 
   <script type="module">
@@ -114,26 +117,42 @@
 
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
-  const arContainer    = document.getElementById('ar-container');
   const arUI           = document.getElementById('ar-ui');
   const loadingOverlay = document.getElementById('loading-overlay');
-  const startBtn       = document.getElementById('start-btn');
-  const stopBtn        = document.getElementById('stop-btn');
+  const camFeed        = document.getElementById('cam-feed');
+  const threeCanvas    = document.getElementById('three-canvas');
   const scanHint       = document.getElementById('scan-hint');
   const spotLabel      = document.getElementById('spot-label');
 
-  let xrSession  = null;
-  let hitTestSrc = null;
-  let renderer   = null;
-  let scene      = null;
-  let camera     = null;
-  let reticle    = null;
-  let content    = null;
-  let placed     = false;
+  let renderer  = null;
+  let scene     = null;
+  let camera    = null;
+  let content   = null;
+  let placed    = false;
+  let stream    = null;
+  let animId    = null;
 
-  startBtn.addEventListener('click', startAR);
+  // Gyroscope state — same quaternion math as the beta world-lock
+  const QUAT_SCREEN     = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  const QUAT_SCREEN_INV = QUAT_SCREEN.clone().invert();
+  const deviceQuat      = new THREE.Quaternion();
 
-  stopBtn.addEventListener('click', async () => {
+  function onDeviceOrient(e) {
+    if (e.alpha == null) return;
+    deviceQuat.setFromEuler(new THREE.Euler(
+      THREE.MathUtils.degToRad(e.beta),
+      THREE.MathUtils.degToRad(e.alpha),
+      -THREE.MathUtils.degToRad(e.gamma),
+      'YXZ'
+    ));
+    if (camera) {
+      camera.quaternion.copy(QUAT_SCREEN).multiply(deviceQuat).multiply(QUAT_SCREEN_INV);
+    }
+  }
+
+  document.getElementById('start-btn').addEventListener('click', startAR);
+
+  document.getElementById('stop-btn').addEventListener('click', async () => {
     await stopAR();
     splash.style.display = 'none';
     farewell.style.display = 'flex';
@@ -146,59 +165,49 @@
   // ══════════════════════════════════════════════════════════════
 
   async function startAR() {
-    // Basic support check
-    if (!navigator.xr) {
-      alert('WebXR is not supported in this browser. Try Chrome on Android or Safari on iOS 16+.');
-      return;
-    }
-    const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
-    if (!supported) {
-      alert('AR is not supported on this device. Try Chrome on Android or Safari on iOS 16+.');
-      return;
-    }
-
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
 
-    // Request XR session — camera permission dialog appears here
+    // iOS motion permission
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      await DeviceOrientationEvent.requestPermission().catch(() => {});
+    }
+
+    // Camera
     try {
-      xrSession = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: arUI },
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
       });
     } catch (err) {
       loadingOverlay.classList.add('hidden');
       splash.style.display = 'flex';
-      alert('Could not start AR. Please allow camera access and try again.');
+      alert('Could not access camera. Please allow camera access and try again.');
       return;
     }
 
-    // Three.js renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    camFeed.srcObject = stream;
+    camFeed.style.display = 'block';
+    await new Promise(res => { camFeed.onloadedmetadata = res; });
+    camFeed.play();
+
+    // Three.js
+    renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.xr.enabled = true;
-    arContainer.appendChild(renderer.domElement);
-    arContainer.style.display = 'block';
-
-    await renderer.xr.setSession(xrSession);
+    threeCanvas.style.display = 'block';
 
     scene  = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 1.6, 0);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(1, 2, 1);
+    dir.position.set(1, 3, 2);
     scene.add(dir);
-    scene.add(Object.assign(new THREE.DirectionalLight(0xffffff, 0.2), { position: new THREE.Vector3(-1, 0.5, -1) }));
-
-    // Reticle — ring shown on detected surfaces before placement
-    const ring = new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2);
-    reticle = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-    reticle.matrixAutoUpdate = false;
-    reticle.visible = false;
-    scene.add(reticle);
+    scene.add(Object.assign(new THREE.DirectionalLight(0xffffff, 0.2), { position: new THREE.Vector3(-1, 1, -1) }));
 
     // Load honeybee
     new GLTFLoader().load('./honeybee.glb', (gltf) => {
@@ -206,60 +215,22 @@
       const box = new THREE.Box3().setFromObject(content);
       const sz  = new THREE.Vector3();
       box.getSize(sz);
-      content.scale.setScalar(0.22 / Math.max(sz.x, sz.y, sz.z));
+      content.scale.setScalar(0.3 / Math.max(sz.x, sz.y, sz.z));
       const ctr = new THREE.Vector3();
       new THREE.Box3().setFromObject(content).getCenter(ctr);
-      content.position.y -= ctr.y;
+      content.position.sub(ctr.multiplyScalar(content.scale.x));
       content.visible = false;
       scene.add(content);
     }, undefined, (e) => console.error('GLB load error:', e));
 
-    // Tap to place
-    xrSession.addEventListener('select', () => {
-      if (!placed && reticle.visible && content) {
-        content.position.setFromMatrixPosition(reticle.matrix);
-        content.quaternion.setFromRotationMatrix(reticle.matrix);
-        content.rotation.x = 0; content.rotation.z = 0;
-        content.visible = true;
-        placed = true;
-        spotLabel.classList.add('visible');
-        scanHint.classList.add('hidden');
-      }
-    });
+    // Gyroscope
+    window.addEventListener('deviceorientation', onDeviceOrient);
 
-    xrSession.addEventListener('end', () => { hitTestSrc = null; xrSession = null; });
+    // Tap to place — fires once, puts object 2m in front of camera
+    threeCanvas.addEventListener('click', onTap, { once: false });
 
-    // Hit test source is initialised lazily on the first XR frame —
-    // requesting it upfront before the frame loop starts can hang on some browsers.
-    let hitTestRequested = false;
-
-    renderer.setAnimationLoop((time, frame) => {
-      if (frame) {
-        const session  = renderer.xr.getSession();
-        const refSpace = renderer.xr.getReferenceSpace();
-
-        if (!hitTestRequested && session) {
-          hitTestRequested = true;
-          session.requestReferenceSpace('viewer')
-            .then(vs => session.requestHitTestSource({ space: vs }))
-            .then(src => { hitTestSrc = src; })
-            .catch(() => {});
-        }
-
-        if (hitTestSrc && refSpace) {
-          const hits = frame.getHitTestResults(hitTestSrc);
-          if (hits.length > 0) {
-            const pose = hits[0].getPose(refSpace);
-            if (pose) {
-              reticle.visible = !placed;
-              reticle.matrix.fromArray(pose.transform.matrix);
-            }
-          } else {
-            reticle.visible = false;
-          }
-        }
-      }
-
+    // Animation loop
+    renderer.setAnimationLoop(() => {
       if (placed && content) content.rotation.y += 0.01;
       renderer.render(scene, camera);
     });
@@ -268,16 +239,29 @@
     arUI.style.display = 'block';
   }
 
+  function onTap() {
+    if (!content || placed) return;
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    content.position.copy(camera.position).addScaledVector(dir, 2.0);
+    content.visible = true;
+    placed = true;
+    spotLabel.classList.add('visible');
+    scanHint.classList.add('hidden');
+  }
+
   async function stopAR() {
     renderer?.setAnimationLoop(null);
-    if (hitTestSrc) { try { hitTestSrc.cancel(); } catch(e) {} hitTestSrc = null; }
-    if (xrSession)  { try { await xrSession.end(); } catch(e) {} xrSession = null; }
     renderer?.dispose();
-    arContainer.innerHTML = '';
-    arContainer.style.display = 'none';
+    renderer = null;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    window.removeEventListener('deviceorientation', onDeviceOrient);
+    threeCanvas.removeEventListener('click', onTap);
+    camFeed.srcObject = null;
+    camFeed.style.display = 'none';
+    threeCanvas.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    placed = false; content = null; reticle = null; renderer = null;
+    placed = false; content = null; scene = null; camera = null;
     spotLabel.classList.remove('visible');
     scanHint.classList.remove('hidden');
   }
