@@ -220,12 +220,21 @@
       _glbReady.then((gltf) => {
         if (!scene) return; // AR stopped before model resolved
         content = gltf.scene;
+
+        // Match alpha/beta builder exactly: uniform scale, then center
         const box = new THREE.Box3().setFromObject(content);
-        const sz  = new THREE.Vector3();
-        box.getSize(sz);
-        content.scale.setScalar(1.4 / Math.max(sz.x, sz.y, sz.z));
-        const box2 = new THREE.Box3().setFromObject(content);
-        content.position.y -= box2.min.y;
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        content.scale.setScalar(1.8 / Math.max(size.x, size.y, size.z));
+
+        // Re-measure after scaling: center X/Z, lift feet to y = 0
+        box.setFromObject(content);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        content.position.x -= center.x;
+        content.position.z -= center.z;
+        content.position.y -= box.min.y;
+
         content.visible = false;
         scene.add(content);
       }).catch((err) => console.error('honeybee GLB load failed:', err));
@@ -236,6 +245,7 @@
 
       // 7. Render loop
       renderer.setAnimationLoop(() => {
+        if (placed && content) content.rotation.y += 0.01;
         renderer.render(scene, camera);
       });
 
