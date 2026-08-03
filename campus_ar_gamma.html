@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>CAMD AR — Campus Experience</title>
 
-  <link rel="preload" href="./honeybee.glb" as="fetch" crossorigin="anonymous">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
 
   <script type="importmap">
@@ -113,7 +112,7 @@
 
   // Begin downloading GLB immediately on page load so it's cached when AR starts
   const _glbReady = new Promise((resolve, reject) => {
-    new GLTFLoader().load('./honeybee.glb', resolve, undefined, reject);
+    new GLTFLoader().load('./honeybee.glb?v=2', resolve, undefined, reject);
   });
 
   const splash         = document.getElementById('splash');

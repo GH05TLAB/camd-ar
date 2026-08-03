@@ -6,7 +6,6 @@
   <title>CAMD AR — Campus Experience</title>
 
   <link rel="preload" href="./targets.mind" as="fetch" crossorigin="anonymous">
-  <link rel="preload" href="./honeybee.glb" as="fetch" crossorigin="anonymous">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js">
 
@@ -229,7 +228,7 @@
     parentGroup.add(g);
     const loader = new GLTFLoader();
     loader.load(
-      './honeybee.glb',
+      './honeybee.glb?v=2',
       (gltf) => {
         const model = gltf.scene;
         const box = new THREE.Box3().setFromObject(model);
