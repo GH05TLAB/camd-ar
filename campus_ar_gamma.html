@@ -125,22 +125,26 @@
   let scene        = null;
   let camera       = null;
   let content      = null;
-  let placed       = false;
   let stream       = null;
-  let qrScanTimer  = null;   // setInterval handle for QR scanning
+  let qrScanTimer  = null;
   let pendingPlace = null;   // {x, y, z} saved if QR found before model loaded
+  let qrDetected   = false;  // true after first successful QR detection
 
-  // Offscreen canvas shared across scan calls (avoids repeated allocation)
+  // Lerp target — updated by QR scanner, consumed by render loop each frame.
+  // Decouples noisy 10 fps scan updates from smooth 60 fps render.
+  const targetPos = new THREE.Vector3();
+
+  // Offscreen canvas — drawn at reduced size so jsQR runs fast
+  const SCAN_W = 480;
   const qrCanvas = document.createElement('canvas');
   const qrCtx    = qrCanvas.getContext('2d', { willReadFrequently: true });
 
-  // Physical size of the printed QR code (square side length in metres).
-  // Adjust if the printed output differs — a larger value shifts the bee further away.
+  // Physical size of the printed QR code (square side in metres).
   const QR_PHYSICAL_M = 0.12; // 12 cm
 
   // Standard Three.js DeviceOrientationControls pattern:
-  // setFromEuler → multiply(QUAT_SCREEN) correctly maps phone pan to camera yaw
-  // so that rotating left → content moves right on screen (physically correct).
+  // setFromEuler → multiply(QUAT_SCREEN) maps phone pan to camera yaw correctly,
+  // so rotating left → content drifts right on screen (physically correct).
   const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
   function onDeviceOrient(e) {
@@ -155,55 +159,61 @@
       .multiply(QUAT_SCREEN);
   }
 
-  // Place the model so its visual centre is at the QR code's 3D world position.
-  function placeContent(worldX, worldY, worldZ) {
-    if (!content) return;
-    // localCenterY is the bbox centre Y when content.position.y = 0;
-    // subtracting it shifts the model so its centre aligns with worldY.
-    content.position.set(worldX, worldY - content.userData.localCenterY, worldZ);
-    content.visible = true;
-    placed = true;
-    spotLabel.classList.add('visible');
-    scanHint.classList.add('hidden');
-    clearInterval(qrScanTimer);
-    qrScanTimer = null;
+  // Feed a fresh world-space QR position into the tracking system.
+  // On first call: snaps content there instantly and reveals it.
+  // On subsequent calls: targetPos is updated; the render loop lerps toward it.
+  function updateTarget(worldX, worldY, worldZ) {
+    const cY = content ? content.userData.localCenterY : 0;
+    targetPos.set(worldX, worldY - cY, worldZ);
+
+    if (!qrDetected && content) {
+      content.position.copy(targetPos); // snap immediately — no lerp lag on first appearance
+      content.visible = true;
+      qrDetected = true;
+      spotLabel.classList.add('visible');
+      scanHint.classList.add('hidden');
+    }
   }
 
-  // Called every 200 ms while scanning. Captures one frame, runs jsQR,
-  // and on detection computes the QR centre in world space.
+  // Runs ~10 fps. Scans for any QR code; on success computes the marker's
+  // 3D position from image-space location + distance estimated from apparent size.
+  // Keeps running indefinitely so movement is tracked continuously.
   function scanFrame() {
-    if (placed || !camFeed.videoWidth || !camera || !window.jsQR) return;
+    if (!camFeed.videoWidth || !camera || !window.jsQR) return;
 
-    const W = camFeed.videoWidth;
-    const H = camFeed.videoHeight;
-    if (qrCanvas.width !== W)  qrCanvas.width  = W;
-    if (qrCanvas.height !== H) qrCanvas.height = H;
-    qrCtx.drawImage(camFeed, 0, 0, W, H);
+    const vW = camFeed.videoWidth;
+    const vH = camFeed.videoHeight;
+    // Scale canvas width to SCAN_W; keep aspect ratio
+    const sw = Math.min(vW, SCAN_W);
+    const sh = Math.round(vH * sw / vW);
+    if (qrCanvas.width !== sw)  qrCanvas.width  = sw;
+    if (qrCanvas.height !== sh) qrCanvas.height = sh;
+    qrCtx.drawImage(camFeed, 0, 0, sw, sh);
 
-    const imageData = qrCtx.getImageData(0, 0, W, H);
-    const code = window.jsQR(imageData.data, W, H, { inversionAttempts: 'dontInvert' });
+    const imageData = qrCtx.getImageData(0, 0, sw, sh);
+    const code = window.jsQR(imageData.data, sw, sh, { inversionAttempts: 'dontInvert' });
     if (!code) return;
 
     const loc = code.location;
     const corners = [loc.topLeftCorner, loc.topRightCorner, loc.bottomRightCorner, loc.bottomLeftCorner];
 
-    // Pixel-space centre of the QR code → normalised device coords
+    // QR centre in scan-canvas pixels → normalised device coords
     const cx = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4;
     const cy = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4;
-    const ndcX =  (cx / W) * 2 - 1;
-    const ndcY = -((cy / H) * 2 - 1); // flip: image Y ↓, NDC Y ↑
+    const ndcX =  (cx / sw) * 2 - 1;
+    const ndcY = -((cy / sh) * 2 - 1);
 
-    // Estimate distance from apparent pixel size vs known physical size.
+    // Distance from apparent pixel edge length vs known physical size
     const avgEdge = (
       Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y) +
       Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y) +
       Math.hypot(corners[3].x - corners[2].x, corners[3].y - corners[2].y) +
       Math.hypot(corners[0].x - corners[3].x, corners[0].y - corners[3].y)
     ) / 4;
-    const focalPx = (H / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const focalPx = (sh / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const dist = Math.max(0.3, Math.min(8.0, (QR_PHYSICAL_M * focalPx) / avgEdge));
 
-    // Cast a ray from the camera through the QR centre, walk `dist` metres along it.
+    // Ray from virtual camera through the QR centre → world position
     const ray = new THREE.Vector3(ndcX, ndcY, 0.5)
       .unproject(camera)
       .sub(camera.position)
@@ -213,9 +223,8 @@
     const worldZ = camera.position.z + ray.z * dist;
 
     if (content) {
-      placeContent(worldX, worldY, worldZ);
+      updateTarget(worldX, worldY, worldZ);
     } else {
-      // Model not loaded yet — save position; applied when model arrives.
       pendingPlace = { x: worldX, y: worldY, z: worldZ };
     }
   }
@@ -231,7 +240,7 @@
   async function startAR() {
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
-    placed      = false;
+    qrDetected   = false;
     pendingPlace = null;
 
     try {
@@ -298,19 +307,22 @@
         content.visible = false;
         scene.add(content);
 
-        // If QR was already detected before the model finished loading, place it now
+        // If QR was already detected before the model finished loading, apply now
         if (pendingPlace) {
-          placeContent(pendingPlace.x, pendingPlace.y, pendingPlace.z);
+          updateTarget(pendingPlace.x, pendingPlace.y, pendingPlace.z);
           pendingPlace = null;
         }
       }, undefined, (err) => console.error('honeybee GLB load failed:', err));
 
-      // 6. Gyroscope + QR scanning
+      // 6. Gyroscope + QR scanning (continuous — enables parallax and size tracking)
       window.addEventListener('deviceorientation', onDeviceOrient);
-      qrScanTimer = setInterval(scanFrame, 200); // 5 fps — fast enough, light on CPU
+      qrScanTimer = setInterval(scanFrame, 100); // ~10 fps scan
 
-      // 7. Render loop (rotation disabled until orientation is confirmed)
+      // 7. Render loop — lerp content toward latest QR target each frame
       renderer.setAnimationLoop(() => {
+        if (qrDetected && content) {
+          content.position.lerp(targetPos, 0.25); // smooth ~4-frame lag at 60 fps
+        }
         renderer.render(scene, camera);
       });
 
@@ -345,7 +357,7 @@
     camFeed.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    placed = false; pendingPlace = null; content = null; scene = null; camera = null;
+    qrDetected = false; pendingPlace = null; content = null; scene = null; camera = null;
     spotLabel.classList.remove('visible');
     scanHint.classList.remove('hidden');
   }
