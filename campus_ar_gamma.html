@@ -113,6 +113,12 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+  // Start downloading the GLB immediately so it's ready before the user taps Start AR.
+  // Using loadAsync + catch(null) so a network error is handled gracefully in startAR.
+  const _glbPreload = new GLTFLoader()
+    .loadAsync('./honeybee.glb?v=2')
+    .catch(() => null);
+
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
   const arUI           = document.getElementById('ar-ui');
@@ -280,39 +286,38 @@
       fill.position.set(-1, 1, -1);
       scene.add(ambient, dirL, fill);
 
-      // 5. Load model (fresh each session so transforms don't compound)
-      new GLTFLoader().load('./honeybee.glb?v=2', (gltf) => {
-        if (!scene) return; // AR was stopped before load finished
+      // 5. Model — await the preloaded promise (resolves instantly if already cached)
+      const gltf = await _glbPreload;
+      if (!gltf) throw new Error('Failed to load 3D model. Check network and try again.');
+      if (!scene) return; // AR was stopped while awaiting
 
-        content = gltf.scene;
+      // Clone so original stays clean for re-use across AR sessions
+      content = gltf.scene.clone(true);
 
-        const box  = new THREE.Box3().setFromObject(content);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        content.scale.setScalar(0.9 / Math.max(size.x, size.y, size.z)); // 2× smaller than before
+      const box  = new THREE.Box3().setFromObject(content);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      content.scale.setScalar(0.5 / Math.max(size.x, size.y, size.z));
 
-        content.rotation.z = Math.PI / 2;
+      // No rotation — natural GLB orientation is Y-up (same as alpha/beta builders).
+      // Re-measure after scaling to centre X/Z.
+      box.setFromObject(content);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      content.position.x -= center.x;
+      content.position.z -= center.z;
 
-        // Re-measure after scale + rotation to centre X/Z
-        box.setFromObject(content);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        content.position.x -= center.x;
-        content.position.z -= center.z;
+      // localCenterY: bbox centre Y when position.y = 0.
+      // updateTarget subtracts this so the model's visual centre aligns with the QR position.
+      content.userData.localCenterY = center.y;
 
-        // Save the bbox centre Y *before* any Y-position adjustment.
-        // placeContent uses this to align the model's visual centre with the QR world position.
-        content.userData.localCenterY = center.y;
+      content.visible = false;
+      scene.add(content);
 
-        content.visible = false;
-        scene.add(content);
-
-        // If QR was already detected before the model finished loading, apply now
-        if (pendingPlace) {
-          updateTarget(pendingPlace.x, pendingPlace.y, pendingPlace.z);
-          pendingPlace = null;
-        }
-      }, undefined, (err) => console.error('honeybee GLB load failed:', err));
+      if (pendingPlace) {
+        updateTarget(pendingPlace.x, pendingPlace.y, pendingPlace.z);
+        pendingPlace = null;
+      }
 
       // 6. Gyroscope + QR scanning (continuous — enables parallax and size tracking)
       window.addEventListener('deviceorientation', onDeviceOrient);
