@@ -128,7 +128,7 @@
   let placed       = false;
   let stream       = null;
   let qrScanTimer  = null;   // setInterval handle for QR scanning
-  let pendingPlace = null;   // {x, z} saved if QR found before model loaded
+  let pendingPlace = null;   // {x, y, z} saved if QR found before model loaded
 
   // Offscreen canvas shared across scan calls (avoids repeated allocation)
   const qrCanvas = document.createElement('canvas');
@@ -138,25 +138,29 @@
   // Adjust if the printed output differs — a larger value shifts the bee further away.
   const QR_PHYSICAL_M = 0.12; // 12 cm
 
-  const QUAT_SCREEN     = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-  const QUAT_SCREEN_INV = QUAT_SCREEN.clone().invert();
-  const deviceQuat      = new THREE.Quaternion();
+  // Standard Three.js DeviceOrientationControls pattern:
+  // setFromEuler → multiply(QUAT_SCREEN) correctly maps phone pan to camera yaw
+  // so that rotating left → content moves right on screen (physically correct).
+  const QUAT_SCREEN = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
   function onDeviceOrient(e) {
     if (e.alpha == null || !camera) return;
-    deviceQuat.setFromEuler(new THREE.Euler(
-      THREE.MathUtils.degToRad(e.beta),
-      THREE.MathUtils.degToRad(e.alpha),
-      -THREE.MathUtils.degToRad(e.gamma),
-      'YXZ'
-    ));
-    camera.quaternion.copy(QUAT_SCREEN).multiply(deviceQuat).multiply(QUAT_SCREEN_INV);
+    camera.quaternion
+      .setFromEuler(new THREE.Euler(
+        THREE.MathUtils.degToRad(e.beta),
+        THREE.MathUtils.degToRad(e.alpha),
+        -THREE.MathUtils.degToRad(e.gamma),
+        'YXZ'
+      ))
+      .multiply(QUAT_SCREEN);
   }
 
-  // Place the model so its feet rest at (worldX, 0, worldZ).
-  function placeContent(worldX, worldZ) {
+  // Place the model so its visual centre is at the QR code's 3D world position.
+  function placeContent(worldX, worldY, worldZ) {
     if (!content) return;
-    content.position.set(worldX, content.userData.liftY, worldZ);
+    // localCenterY is the bbox centre Y when content.position.y = 0;
+    // subtracting it shifts the model so its centre aligns with worldY.
+    content.position.set(worldX, worldY - content.userData.localCenterY, worldZ);
     content.visible = true;
     placed = true;
     spotLabel.classList.add('visible');
@@ -190,7 +194,6 @@
     const ndcY = -((cy / H) * 2 - 1); // flip: image Y ↓, NDC Y ↑
 
     // Estimate distance from apparent pixel size vs known physical size.
-    // Use the vertical half-FOV and video height to get a focal length in pixels.
     const avgEdge = (
       Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y) +
       Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y) +
@@ -206,13 +209,14 @@
       .sub(camera.position)
       .normalize();
     const worldX = camera.position.x + ray.x * dist;
+    const worldY = camera.position.y + ray.y * dist;
     const worldZ = camera.position.z + ray.z * dist;
 
     if (content) {
-      placeContent(worldX, worldZ);
+      placeContent(worldX, worldY, worldZ);
     } else {
       // Model not loaded yet — save position; applied when model arrives.
-      pendingPlace = { x: worldX, z: worldZ };
+      pendingPlace = { x: worldX, y: worldY, z: worldZ };
     }
   }
 
@@ -276,27 +280,27 @@
         const box  = new THREE.Box3().setFromObject(content);
         const size = new THREE.Vector3();
         box.getSize(size);
-        content.scale.setScalar(1.8 / Math.max(size.x, size.y, size.z));
+        content.scale.setScalar(0.9 / Math.max(size.x, size.y, size.z)); // 2× smaller than before
 
         content.rotation.z = Math.PI / 2;
 
-        // Re-measure after scale + rotation to centre X/Z and lift feet to y = 0
+        // Re-measure after scale + rotation to centre X/Z
         box.setFromObject(content);
         const center = new THREE.Vector3();
         box.getCenter(center);
         content.position.x -= center.x;
         content.position.z -= center.z;
-        content.position.y -= box.min.y;
 
-        // Save the y-offset that keeps feet at world y = 0
-        content.userData.liftY = content.position.y;
+        // Save the bbox centre Y *before* any Y-position adjustment.
+        // placeContent uses this to align the model's visual centre with the QR world position.
+        content.userData.localCenterY = center.y;
 
         content.visible = false;
         scene.add(content);
 
         // If QR was already detected before the model finished loading, place it now
         if (pendingPlace) {
-          placeContent(pendingPlace.x, pendingPlace.z);
+          placeContent(pendingPlace.x, pendingPlace.y, pendingPlace.z);
           pendingPlace = null;
         }
       }, undefined, (err) => console.error('honeybee GLB load failed:', err));
