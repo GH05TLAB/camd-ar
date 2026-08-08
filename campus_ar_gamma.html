@@ -167,7 +167,7 @@
       ))
       .multiply(QUAT_SCREEN);
     if (!gyroInit) { smoothCamQ.copy(raw); gyroInit = true; }
-    else            { smoothCamQ.slerp(raw, 0.3); } // damps hand-tremor ~3-4×
+    else            { smoothCamQ.slerp(raw, 0.5); } // lighter damping — more natural feel
     camera.quaternion.copy(smoothCamQ);
   }
 
@@ -187,9 +187,9 @@
       qrDetected = true;
       spotLabel.classList.add('visible');
       scanHint.classList.add('hidden');
-    } else if (_rawPos.distanceTo(targetPos) > 0.02) {
+    } else if (_rawPos.distanceTo(targetPos) > 0.015) {
       // Only pull targetPos when new reading is meaningfully different
-      targetPos.lerp(_rawPos, 0.4);
+      targetPos.lerp(_rawPos, 0.55);
     }
   }
 
@@ -339,7 +339,7 @@
       // 7. Render loop — lerp content toward smoothed QR target each frame
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
-          content.position.lerp(targetPos, 0.1); // ~10-frame lag — visually smooth
+          content.position.lerp(targetPos, 0.18); // balanced — smooth but responsive
         }
         renderer.render(scene, camera);
       });
