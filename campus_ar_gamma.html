@@ -127,18 +127,21 @@
   const scanHint       = document.getElementById('scan-hint');
   const spotLabel      = document.getElementById('spot-label');
 
-  let renderer     = null;
-  let scene        = null;
-  let camera       = null;
-  let content      = null;
-  let stream       = null;
-  let qrScanTimer  = null;
-  let pendingPlace = null;   // {x, y, z} saved if QR found before model loaded
-  let qrDetected   = false;  // true after first successful QR detection
+  let renderer      = null;
+  let scene         = null;
+  let camera        = null;
+  let content       = null;
+  let stream        = null;
+  let qrScanTimer   = null;
+  let pendingPlace  = null;   // {x, y, z} saved if QR found before model loaded
+  let qrDetected    = false;  // true after first successful QR detection
+  let gyroInit      = false;  // false until first gyro reading (enables snap-on-first)
 
-  // Lerp target — updated by QR scanner, consumed by render loop each frame.
-  // Decouples noisy 10 fps scan updates from smooth 60 fps render.
-  const targetPos = new THREE.Vector3();
+  // Smoothed QR position — updated by scanner, consumed by render loop each frame.
+  const targetPos   = new THREE.Vector3();
+
+  // Smoothed camera quaternion — isolates micro hand-tremor from the rendered view.
+  const smoothCamQ  = new THREE.Quaternion();
 
   // Offscreen canvas — drawn at reduced size so jsQR runs fast
   const SCAN_W = 480;
@@ -155,7 +158,7 @@
 
   function onDeviceOrient(e) {
     if (e.alpha == null || !camera) return;
-    camera.quaternion
+    const raw = new THREE.Quaternion()
       .setFromEuler(new THREE.Euler(
         THREE.MathUtils.degToRad(e.beta),
         THREE.MathUtils.degToRad(e.alpha),
@@ -163,21 +166,30 @@
         'YXZ'
       ))
       .multiply(QUAT_SCREEN);
+    if (!gyroInit) { smoothCamQ.copy(raw); gyroInit = true; }
+    else            { smoothCamQ.slerp(raw, 0.3); } // damps hand-tremor ~3-4×
+    camera.quaternion.copy(smoothCamQ);
   }
 
   // Feed a fresh world-space QR position into the tracking system.
   // On first call: snaps content there instantly and reveals it.
-  // On subsequent calls: targetPos is updated; the render loop lerps toward it.
+  // On subsequent calls: only moves targetPos if the shift is > 2 cm (dead zone),
+  // then lerps 40% of the way — this kills micro-jitter from QR detection noise.
+  const _rawPos = new THREE.Vector3(); // reused to avoid per-scan allocation
   function updateTarget(worldX, worldY, worldZ) {
     const cY = content ? content.userData.localCenterY : 0;
-    targetPos.set(worldX, worldY - cY, worldZ);
+    _rawPos.set(worldX, worldY - cY, worldZ);
 
     if (!qrDetected && content) {
-      content.position.copy(targetPos); // snap immediately — no lerp lag on first appearance
+      targetPos.copy(_rawPos);
+      content.position.copy(targetPos);
       content.visible = true;
       qrDetected = true;
       spotLabel.classList.add('visible');
       scanHint.classList.add('hidden');
+    } else if (_rawPos.distanceTo(targetPos) > 0.02) {
+      // Only pull targetPos when new reading is meaningfully different
+      targetPos.lerp(_rawPos, 0.4);
     }
   }
 
@@ -247,6 +259,7 @@
     splash.style.display = 'none';
     loadingOverlay.classList.remove('hidden');
     qrDetected   = false;
+    gyroInit     = false;
     pendingPlace = null;
 
     try {
@@ -323,10 +336,10 @@
       window.addEventListener('deviceorientation', onDeviceOrient);
       qrScanTimer = setInterval(scanFrame, 100); // ~10 fps scan
 
-      // 7. Render loop — lerp content toward latest QR target each frame
+      // 7. Render loop — lerp content toward smoothed QR target each frame
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
-          content.position.lerp(targetPos, 0.25); // smooth ~4-frame lag at 60 fps
+          content.position.lerp(targetPos, 0.1); // ~10-frame lag — visually smooth
         }
         renderer.render(scene, camera);
       });
@@ -362,7 +375,7 @@
     camFeed.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    qrDetected = false; pendingPlace = null; content = null; scene = null; camera = null;
+    qrDetected = false; gyroInit = false; pendingPlace = null; content = null; scene = null; camera = null;
     spotLabel.classList.remove('visible');
     scanHint.classList.remove('hidden');
   }
