@@ -143,6 +143,20 @@
   // Smoothed camera quaternion — isolates micro hand-tremor from the rendered view.
   const smoothCamQ  = new THREE.Quaternion();
 
+  // Scene light references (set in startAR, read by render loop and lighting analyser)
+  let ambientLight  = null;
+  let dirLight      = null;
+
+  // Lighting targets — camera analyser writes here, render loop lerps toward them
+  const lt = {
+    ambColor:     new THREE.Color(1, 1, 1),
+    ambIntensity: 0.7,
+    dirColor:     new THREE.Color(1, 1, 1),
+    dirIntensity: 0.9,
+  };
+  const LIGHT_LERP  = 0.04; // slow, natural-feeling light transitions
+  let lightTickCount = 0;   // analyse lighting every 5th QR scan (~2 fps)
+
   // Offscreen canvas — drawn at reduced size so jsQR runs fast
   const SCAN_W = 480;
   const qrCanvas = document.createElement('canvas');
@@ -193,9 +207,58 @@
     }
   }
 
+  // Analyses a raw ImageData pixel array for colour temperature and contrast.
+  // Writes results into lt (lighting target); render loop lerps actual lights toward it.
+  function analyzeLighting(data, w, h) {
+    const SAMPLES = 300;
+    const stride  = Math.max(4, Math.floor(w * h / SAMPLES) * 4);
+    let rSum = 0, gSum = 0, bSum = 0, lumSum = 0;
+    let count = 0;
+    const lums = [];
+    for (let i = 0; i + 2 < data.length; i += stride) {
+      const r = data[i], g = data[i+1], b = data[i+2];
+      const lum = 0.299*r + 0.587*g + 0.114*b;
+      rSum += r; gSum += g; bSum += b; lumSum += lum;
+      lums.push(lum);
+      count++;
+    }
+    if (!count) return;
+
+    const avgR = rSum / count, avgB = bSum / count;
+    const avgLum = lumSum / count;
+
+    // Luminance std-deviation → sharpness (high = direct sun, low = overcast/indoor)
+    let varSum = 0;
+    for (const l of lums) varSum += (l - avgLum) ** 2;
+    const sharpness = Math.min(1, Math.sqrt(varSum / count) / 55);
+
+    // Warmth: 0 = cool blue light, 1 = warm golden light
+    const warmth = Math.max(0, Math.min(1, ((avgR - avgB) / (avgR + avgB + 1) + 0.15) / 0.3));
+
+    // Overall scene brightness (controls global intensity)
+    const brightness = Math.max(0.25, Math.min(1.4, avgLum / 140));
+
+    // Directional light: warm/cool tint + intensity driven by sharpness (sun vs cloud)
+    lt.dirColor.lerpColors(
+      new THREE.Color(0.75, 0.85, 1.00), // cool / overcast
+      new THREE.Color(1.00, 0.87, 0.52), // warm / golden
+      warmth
+    );
+    lt.dirIntensity = brightness * (0.45 + sharpness * 0.85);
+
+    // Ambient: complementary tint, stronger when overcast (fills shadows)
+    lt.ambColor.lerpColors(
+      new THREE.Color(0.55, 0.65, 0.85),
+      new THREE.Color(0.65, 0.55, 0.42),
+      warmth
+    );
+    lt.ambIntensity = brightness * (0.85 - sharpness * 0.40);
+  }
+
   // Runs ~10 fps. Scans for any QR code; on success computes the marker's
   // 3D position from image-space location + distance estimated from apparent size.
   // Keeps running indefinitely so movement is tracked continuously.
+  // Reuses the captured ImageData for lighting analysis every 5th tick.
   function scanFrame() {
     if (!camFeed.videoWidth || !camera || !window.jsQR) return;
 
@@ -209,6 +272,11 @@
     qrCtx.drawImage(camFeed, 0, 0, sw, sh);
 
     const imageData = qrCtx.getImageData(0, 0, sw, sh);
+
+    // Lighting analysis every 5th scan (~2 fps) — reuses the frame already captured
+    lightTickCount++;
+    if (lightTickCount % 5 === 0) analyzeLighting(imageData.data, sw, sh);
+
     const code = window.jsQR(imageData.data, sw, sh, { inversionAttempts: 'dontInvert' });
     if (!code) return;
 
@@ -292,12 +360,17 @@
       camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
       camera.position.set(0, 1.6, 0);
 
-      const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-      const dirL    = new THREE.DirectionalLight(0xffffff, 0.9);
-      dirL.position.set(1, 3, 2);
-      const fill    = new THREE.DirectionalLight(0xffffff, 0.2);
+      ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      dirLight     = new THREE.DirectionalLight(0xffffff, 0.9);
+      dirLight.position.set(1, 3, 2);
+      const fill   = new THREE.DirectionalLight(0xffffff, 0.2);
       fill.position.set(-1, 1, -1);
-      scene.add(ambient, dirL, fill);
+      scene.add(ambientLight, dirLight, fill);
+
+      // Initialise lighting targets to match starting light values
+      lt.ambColor.set(1, 1, 1); lt.ambIntensity = 0.7;
+      lt.dirColor.set(1, 1, 1); lt.dirIntensity = 0.9;
+      lightTickCount = 0;
 
       // 5. Model — await the preloaded promise (resolves instantly if already cached)
       const gltf = await _glbPreload;
@@ -336,10 +409,16 @@
       window.addEventListener('deviceorientation', onDeviceOrient);
       qrScanTimer = setInterval(scanFrame, 100); // ~10 fps scan
 
-      // 7. Render loop — lerp content toward smoothed QR target each frame
+      // 7. Render loop — lerp content position and light parameters each frame
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
-          content.position.lerp(targetPos, 0.18); // balanced — smooth but responsive
+          content.position.lerp(targetPos, 0.18);
+        }
+        if (ambientLight) {
+          ambientLight.color.lerp(lt.ambColor, LIGHT_LERP);
+          ambientLight.intensity += (lt.ambIntensity - ambientLight.intensity) * LIGHT_LERP;
+          dirLight.color.lerp(lt.dirColor, LIGHT_LERP);
+          dirLight.intensity += (lt.dirIntensity - dirLight.intensity) * LIGHT_LERP;
         }
         renderer.render(scene, camera);
       });
@@ -375,7 +454,9 @@
     camFeed.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    qrDetected = false; gyroInit = false; pendingPlace = null; content = null; scene = null; camera = null;
+    qrDetected = false; gyroInit = false; pendingPlace = null;
+    content = null; scene = null; camera = null;
+    ambientLight = null; dirLight = null;
     spotLabel.classList.remove('visible');
     scanHint.classList.remove('hidden');
   }
