@@ -157,6 +157,22 @@
   const LIGHT_LERP  = 0.04; // slow, natural-feeling light transitions
   let lightTickCount = 0;   // analyse lighting every 5th QR scan (~2 fps)
 
+  // Touch-drag rotation state
+  let userRotY   = 0;      // accumulated Y rotation set by user drag (radians)
+  let lastTouchX = null;   // previous touch X for delta calculation
+
+  function onTouchStart(e) {
+    if (e.touches.length === 1) lastTouchX = e.touches[0].clientX;
+  }
+  function onTouchMove(e) {
+    if (e.touches.length !== 1 || lastTouchX === null) return;
+    e.preventDefault(); // stop page scroll while rotating
+    const dx = e.touches[0].clientX - lastTouchX;
+    lastTouchX = e.touches[0].clientX;
+    userRotY += dx * 0.012; // ~180° across half the screen width
+  }
+  function onTouchEnd() { lastTouchX = null; }
+
   // Offscreen canvas — drawn at reduced size so jsQR runs fast
   const SCAN_W = 480;
   const qrCanvas = document.createElement('canvas');
@@ -329,6 +345,7 @@
     qrDetected   = false;
     gyroInit     = false;
     pendingPlace = null;
+    userRotY     = 0;
 
     try {
       // 1. iOS motion permission
@@ -405,14 +422,18 @@
         pendingPlace = null;
       }
 
-      // 6. Gyroscope + QR scanning (continuous — enables parallax and size tracking)
+      // 6. Gyroscope + QR scanning + touch rotation
       window.addEventListener('deviceorientation', onDeviceOrient);
       qrScanTimer = setInterval(scanFrame, 100); // ~10 fps scan
+      cnv.addEventListener('touchstart', onTouchStart, { passive: true });
+      cnv.addEventListener('touchmove',  onTouchMove,  { passive: false }); // false needed for preventDefault
+      cnv.addEventListener('touchend',   onTouchEnd,   { passive: true });
 
-      // 7. Render loop — lerp content position and light parameters each frame
+      // 7. Render loop — lerp content position, apply user rotation, lerp lights
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
+          content.rotation.y = userRotY;
         }
         if (ambientLight) {
           ambientLight.color.lerp(lt.ambColor, LIGHT_LERP);
