@@ -164,6 +164,7 @@
 
   // Touch-drag rotation state
   let userRotY   = 0;      // accumulated Y rotation set by user drag (radians)
+  let autoRotY   = 0;      // slow idle spin around Y axis
   let lastTouchX = null;   // previous touch X for delta calculation
 
   function onTouchStart(e) {
@@ -450,7 +451,8 @@
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
-          content.rotation.y = userRotY;
+          autoRotY += 0.003; // ~10°/s at 60fps — gentle idle spin
+          content.rotation.y = userRotY + autoRotY;
           content.scale.setScalar(content.userData.nominalScale);
         }
         if (ambientLight) {
@@ -493,7 +495,7 @@
     camFeed.style.display = 'none';
     arUI.style.display = 'none';
     loadingOverlay.classList.add('hidden');
-    qrDetected = false; gyroInit = false; pendingPlace = null; smoothedDist = null; missedScans = 0;
+    qrDetected = false; gyroInit = false; pendingPlace = null; smoothedDist = null; missedScans = 0; userRotY = 0; autoRotY = 0;
     content = null; scene = null; camera = null;
     ambientLight = null; dirLight = null;
     spotLabel.classList.remove('visible');
