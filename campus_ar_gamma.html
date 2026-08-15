@@ -50,13 +50,16 @@
 
     /* AR UI */
     #ar-ui { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: none; }
-    #ar-header { position: absolute; top: 0; left: 0; right: 0; padding: 1rem 1.2rem; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
-    #ar-label { font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; font-family: 'Courier New', monospace; opacity: 0.8; }
+    /* bottom action bar replaces the old top header */
+    #ar-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: center; gap: 0.75rem; background: linear-gradient(to top, rgba(0,0,0,0.65), transparent); }
+    #ar-exit-hint { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-family: 'Courier New', monospace; color: rgba(255,255,255,0.75); white-space: nowrap; }
     #stop-btn { pointer-events: all; background: var(--red); border: none; color: white; padding: 0.4rem 0.9rem; font-size: 0.7rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; }
     #stop-btn:active { opacity: 0.85; }
-    #scan-hint { position: absolute; bottom: 2.5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
+    /* scan hint sits above the footer */
+    #scan-hint { position: absolute; bottom: 5rem; left: 50%; transform: translateX(-50%); text-align: center; font-size: 0.75rem; font-family: 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 0.5rem 1.2rem; border-radius: 2px; white-space: nowrap; transition: opacity 0.5s; }
     #scan-hint.hidden { opacity: 0; }
-    #spot-label { position: absolute; top: 4.5rem; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-family: 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 2px; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
+    /* content title at top */
+    #spot-label { position: absolute; top: 1.2rem; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-family: 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.3rem 0.9rem; border-radius: 2px; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
     #spot-label.visible { opacity: 1; }
   </style>
 </head>
@@ -77,13 +80,13 @@
     </div>
     <div style="flex:0.4"></div>
     <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);line-height:1.65;margin:0;padding:0 2rem;text-align:center">
-      Tap "Start AR", then allow camera access and hold it near the QR code.
+      Tap "Start", then allow camera access and hold it near the QR code.
     </p>
     <p style="font-size:clamp(0.78rem,3.2vw,0.95rem);color:var(--white);opacity:0.7;line-height:1.65;margin:0;padding:0 2rem;text-align:center">
       Slowly move closer or further if needed.
     </p>
     <div style="flex:1"></div>
-    <button id="start-btn" style="position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%)">START AR</button>
+    <button id="start-btn" style="position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%)">START</button>
   </div>
 
   <div id="farewell">
@@ -94,20 +97,19 @@
     <div style="flex:0.2"></div>
     <p style="font-size:clamp(1.3rem,5vw,1.7rem);font-family:'Georgia',serif;font-weight:400;letter-spacing:0.08em;text-align:center">THANK YOU!</p>
     <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);line-height:1.65;margin:0;padding:0 2rem;text-align:center;opacity:0.8">
-      Open your Camera app if you want to continue exploring CAMD AR Gallery.
+      Close this tab and open camera again to continue exploring CAMD AR Gallery.
     </p>
     <div style="flex:1"></div>
     <button id="close-btn">CLOSE</button>
   </div>
 
   <div id="ar-ui">
-    <div id="ar-header">
-      <img src="./nu_logo.png" alt="NU" style="width:36px;height:36px;object-fit:contain;">
-      <span id="ar-label">Campus AR · γ</span>
-      <button id="stop-btn">✕ Exit</button>
-    </div>
     <div id="spot-label">HONEYBEE</div>
     <div id="scan-hint">Point camera at any CAMD marker</div>
+    <div id="ar-footer">
+      <span id="ar-exit-hint">To end the experience, tap</span>
+      <button id="stop-btn">✕ Exit</button>
+    </div>
   </div>
 
   <script type="module">
