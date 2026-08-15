@@ -451,10 +451,7 @@
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
           content.rotation.y = userRotY;
-          // Softly shrink after ~1.5 s without a QR scan so the user knows tracking is uncertain.
-          // missedScans counts at ~15 fps, so 22 missed ≈ 1.5 s grace before fading starts.
-          const lost = Math.max(0, missedScans - 22);
-          content.scale.setScalar(content.userData.nominalScale * Math.max(0.15, 1 - lost / 45));
+          content.scale.setScalar(content.userData.nominalScale);
         }
         if (ambientLight) {
           ambientLight.color.lerp(lt.ambColor, LIGHT_LERP);
