@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" data-v="2026-08-02">
 <head>
   <meta charset="UTF-8" />
@@ -6,15 +6,15 @@
   <title>CAMD AR — Campus Experience</title>
 
   <link rel="preload" href="./targets.mind" as="fetch" crossorigin="anonymous">
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js">
+  <link rel="modulepreload" href="./lib/three.module.js">
+  <link rel="modulepreload" href="./lib/mindar-image-three.prod.js">
 
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+      "three": "./lib/three.module.js",
+      "three/addons/": "./lib/addons/",
+      "mindar-image-three": "./lib/mindar-image-three.prod.js"
     }
   }
   </script>

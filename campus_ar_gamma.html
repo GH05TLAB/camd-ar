@@ -1,23 +1,23 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" data-v="2026-08-07">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>CAMD AR — Campus Experience</title>
 
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
+  <link rel="modulepreload" href="./lib/three.module.js">
 
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      "three": "./lib/three.module.js",
+      "three/addons/": "./lib/addons/"
     }
   }
   </script>
 
   <!-- jsQR: lightweight (~50 kB) QR-code decoder, no WASM -->
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="./lib/jsQR.js"></script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
