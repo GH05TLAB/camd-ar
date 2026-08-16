@@ -82,9 +82,6 @@
     <p style="font-size:clamp(0.95rem,4vw,1.2rem);color:var(--white);line-height:1.65;margin:0;padding:0 2rem;text-align:center">
       Tap "Start", allow camera access and hold it near the QR code.
     </p>
-    <p style="font-size:clamp(0.78rem,3.2vw,0.95rem);color:var(--white);opacity:0.7;line-height:1.65;margin:0;padding:0 2rem;text-align:center">
-      Slowly move closer or further if needed.
-    </p>
     <div style="flex:1"></div>
     <button id="start-btn" style="position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%)">START</button>
   </div>
@@ -116,11 +113,13 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-  // Start downloading the GLB immediately so it's ready before the user taps Start AR.
-  // Using loadAsync + catch(null) so a network error is handled gracefully in startAR.
-  const _glbPreload = new GLTFLoader()
-    .loadAsync('./honeybee.glb?v=2')
-    .catch(() => null);
+  // Start downloading the GLB immediately. Race against a 12-second timeout so a
+  // stalled GitHub Pages response never causes the loading overlay to spin forever.
+  const _glbTimeout = t => new Promise(r => setTimeout(() => r(null), t));
+  const _glbPreload = Promise.race([
+    new GLTFLoader().loadAsync('./honeybee.glb?v=3').catch(() => null),
+    _glbTimeout(12000),
+  ]);
 
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
@@ -405,8 +404,14 @@
       lt.dirColor.set(1, 1, 1); lt.dirIntensity = 0.9;
       lightTickCount = 0;
 
-      // 5. Model — await the preloaded promise (resolves instantly if already cached)
-      const gltf = await _glbPreload;
+      // 5. Model — await preload; if it timed out, try once more before giving up
+      let gltf = await _glbPreload;
+      if (!gltf) {
+        gltf = await Promise.race([
+          new GLTFLoader().loadAsync('./honeybee.glb?v=3').catch(() => null),
+          _glbTimeout(12000),
+        ]);
+      }
       if (!gltf) throw new Error('Failed to load 3D model. Check network and try again.');
       if (!scene) return; // AR was stopped while awaiting
 
