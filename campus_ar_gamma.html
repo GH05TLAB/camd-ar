@@ -113,12 +113,13 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-  // Start downloading the GLB immediately. Race against a 12-second timeout so a
-  // stalled GitHub Pages response never causes the loading overlay to spin forever.
+  // Start downloading the GLB immediately (18 MB — can take 20-30s on slow mobile).
+  // The promise is reused in startAR so only one download ever runs.
+  // A 45-second hard cap ensures a truly stalled response doesn't hang forever.
   const _glbTimeout = t => new Promise(r => setTimeout(() => r(null), t));
   const _glbPreload = Promise.race([
     new GLTFLoader().loadAsync('./honeybee.glb?v=3').catch(() => null),
-    _glbTimeout(12000),
+    _glbTimeout(45000),
   ]);
 
   const splash         = document.getElementById('splash');
@@ -404,14 +405,9 @@
       lt.dirColor.set(1, 1, 1); lt.dirIntensity = 0.9;
       lightTickCount = 0;
 
-      // 5. Model — await preload; if it timed out, try once more before giving up
-      let gltf = await _glbPreload;
-      if (!gltf) {
-        gltf = await Promise.race([
-          new GLTFLoader().loadAsync('./honeybee.glb?v=3').catch(() => null),
-          _glbTimeout(12000),
-        ]);
-      }
+      // 5. Model — the preload started at page load, so by the time user taps Start
+      // most of the 18 MB is already in flight. Just await the shared promise.
+      const gltf = await _glbPreload;
       if (!gltf) throw new Error('Failed to load 3D model. Check network and try again.');
       if (!scene) return; // AR was stopped while awaiting
 
