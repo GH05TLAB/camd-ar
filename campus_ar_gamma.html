@@ -113,11 +113,17 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-  // Start downloading the GLB immediately so it's ready before the user taps Start.
-  // Using loadAsync + catch(null) so a network error is handled gracefully in startAR.
-  const _glbPreload = new GLTFLoader()
-    .loadAsync('./honeybee.glb?v=2')
-    .catch(() => null);
+  // Start downloading the GLB immediately. Use loader.load() (not loadAsync) so we
+  // can track real download progress and update the loading screen with a percentage.
+  let _glbPct = 0;
+  const _glbPreload = new Promise(resolve => {
+    new GLTFLoader().load(
+      './honeybee.glb?v=2',
+      gltf => resolve(gltf),
+      xhr  => { if (xhr.total) _glbPct = Math.round(xhr.loaded / xhr.total * 100); },
+      ()   => resolve(null)
+    );
+  });
 
   const splash         = document.getElementById('splash');
   const farewell       = document.getElementById('farewell');
@@ -402,8 +408,14 @@
       lt.dirColor.set(1, 1, 1); lt.dirIntensity = 0.9;
       lightTickCount = 0;
 
-      // 5. Model — await the preloaded promise (resolves instantly if already cached)
+      // 5. Model — show real download progress while awaiting the preloaded promise
+      const loaderText = document.querySelector('.loader-text');
+      const progressInterval = setInterval(() => {
+        if (loaderText && _glbPct < 100) loaderText.textContent = `Loading model… ${_glbPct}%`;
+      }, 300);
       const gltf = await _glbPreload;
+      clearInterval(progressInterval);
+      if (loaderText) loaderText.textContent = 'Initialising AR engine…';
       if (!gltf) throw new Error('Failed to load 3D model. Check network and try again.');
       if (!scene) return; // AR was stopped while awaiting
 
