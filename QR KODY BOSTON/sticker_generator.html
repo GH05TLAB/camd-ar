@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BOSTON Sticker Generator — CAMD XR Gallery</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0e0e0e; color: #f0f0f0; font-family: Lato, sans-serif; padding: 2.5rem 2rem; }
+    h1 { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; }
+    .sub { font-size: 0.67rem; color: #444; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 0.35rem; margin-bottom: 1.6rem; font-family: 'Courier New', monospace; }
+    #dl-all { background: #C8102E; color: #fff; border: none; padding: 0.55rem 1.5rem; font-family: Lato, sans-serif; font-weight: 900; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; margin-bottom: 0.6rem; display: block; }
+    #dl-all:hover { background: #a50d25; }
+    #status { font-size: 0.65rem; color: #444; letter-spacing: 0.06em; margin-bottom: 2rem; font-family: 'Courier New', monospace; height: 1.2rem; }
+    .grid { display: grid; grid-template-columns: repeat(5, 240px); gap: 1.8rem 1.4rem; }
+    .card { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; }
+    canvas.preview { width: 240px; height: 240px; cursor: pointer; border: 1px solid #1e1e1e; transition: border-color 0.15s; }
+    canvas.preview:hover { border-color: #C8102E; }
+    .card-id { font-family: 'Courier New', monospace; font-size: 0.6rem; color: #C8102E; letter-spacing: 0.14em; text-transform: uppercase; }
+    .card-glb { font-size: 0.57rem; color: #444; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-family: 'Courier New', monospace; }
+    .card-btn { background: transparent; border: 1px solid #2a2a2a; color: #555; padding: 0.32rem 0; font-family: Lato, sans-serif; font-weight: 700; font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; width: 100%; transition: all 0.15s; }
+    .card-btn:hover { border-color: #C8102E; color: #C8102E; }
+  </style>
+</head>
+<body>
+
+<h1>XR Gallery · Boston</h1>
+<div class="sub">CAMD · Northeastern University · Sticker Series BOSTON001–010 · 900×900 px / 300 dpi</div>
+
+<button id="dl-all">↓ Download All PNG</button>
+<div id="status">Loading fonts…</div>
+<div class="grid" id="grid"></div>
+
+<script>
+  const RED   = '#C8102E';
+  const W     = 900;        // 3" at 300 dpi
+  const STRIP = 110;        // red strip thickness
+  const INNER = W - STRIP * 2; // 680 px QR zone
+
+  const BASE = 'https://gh05tlab.github.io/camd-ar/campus_ar_gamma.html?m=';
+
+  const DATA = [
+    { id: 'BOSTON001', glb: 'butterfly.glb' },
+    { id: 'BOSTON002', glb: 'Lizard.glb' },
+    { id: 'BOSTON003', glb: 'Mechanical_Crab.glb' },
+    { id: 'BOSTON004', glb: 'RCP_v06k_UV_SP_v01a.glb' },
+    { id: 'BOSTON005', glb: 'RhinoTexture_v02.glb' },
+    { id: 'BOSTON006', glb: 'RO59F0~1.glb' },
+    { id: 'BOSTON007', glb: 'RobCre_FilterShark_SR_subspaint_v03.glb' },
+    { id: 'BOSTON008', glb: 'robotic_scorpion_v03d.glb' },
+    { id: 'BOSTON009', glb: 'SEAHOR~1.glb' },
+    { id: 'BOSTON010', glb: 'Spider_Robot_v02b.glb' },
+  ];
+
+  function makeQRCanvas(url) {
+    return new Promise((res, rej) => {
+      const c = document.createElement('canvas');
+      QRCode.toCanvas(c, url, {
+        width: INNER, margin: 2,
+        color: { dark: '#000000', light: '#ffffff' },
+        errorCorrectionLevel: 'M'
+      }, err => err ? rej(err) : res(c));
+    });
+  }
+
+  async function buildSticker(item) {
+    const cv  = document.createElement('canvas');
+    cv.width  = W;
+    cv.height = W;
+    const ctx = cv.getContext('2d');
+
+    // White background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, W);
+
+    // QR code in centre zone
+    const qr = await makeQRCanvas(BASE + item.id);
+    ctx.drawImage(qr, STRIP, STRIP, INNER, INNER);
+
+    // Red strips (drawn over QR margins, keeping clean corners)
+    ctx.fillStyle = RED;
+    ctx.fillRect(0, 0, W, STRIP);                      // top
+    ctx.fillRect(0, W - STRIP, W, STRIP);              // bottom
+    ctx.fillRect(0, STRIP, STRIP, INNER);              // left
+    ctx.fillRect(W - STRIP, STRIP, STRIP, INNER);      // right
+    // corner squares
+    ctx.fillRect(0, 0, STRIP, STRIP);
+    ctx.fillRect(W - STRIP, 0, STRIP, STRIP);
+    ctx.fillRect(0, W - STRIP, STRIP, STRIP);
+    ctx.fillRect(W - STRIP, W - STRIP, STRIP, STRIP);
+
+    const txt = (label, x, y, angle, size, weight) => {
+      ctx.save();
+      ctx.translate(x, y);
+      if (angle) ctx.rotate(angle);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${weight} ${size}px Lato, sans-serif`;
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    };
+
+    const num  = item.id.replace('BOSTON', '');
+    const MID  = W / 2;
+    const HALF = STRIP / 2;
+
+    txt('AR GALLERY', MID,        HALF,        0,             40, '900');
+    txt(num,          MID,        W - HALF,    0,             58, '900');
+    txt('CAMD',       W - HALF,   MID,         Math.PI / 2,  40, '900');
+    txt('BOSTON',     HALF,       MID,        -Math.PI / 2,  40, '900');
+
+    return cv;
+  }
+
+  function download(cv, id) {
+    const a = document.createElement('a');
+    a.download = id + '.png';
+    a.href = cv.toDataURL('image/png');
+    a.click();
+  }
+
+  const ready = [];
+
+  async function init() {
+    const grid   = document.getElementById('grid');
+    const status = document.getElementById('status');
+
+    for (let i = 0; i < DATA.length; i++) {
+      const item = DATA[i];
+      status.textContent = `Generating ${item.id}… (${i + 1} / ${DATA.length})`;
+
+      const cv = await buildSticker(item);
+      ready.push({ cv, id: item.id });
+
+      // Preview card
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const idLbl = document.createElement('div');
+      idLbl.className = 'card-id';
+      idLbl.textContent = item.id;
+
+      const preview = document.createElement('canvas');
+      preview.className = 'preview';
+      preview.width  = 900;
+      preview.height = 900;
+      preview.getContext('2d').drawImage(cv, 0, 0);
+      preview.title   = `Click to download ${item.id}.png`;
+      preview.onclick = () => download(cv, item.id);
+
+      const glbLbl = document.createElement('div');
+      glbLbl.className = 'card-glb';
+      glbLbl.textContent = item.glb;
+
+      const btn = document.createElement('button');
+      btn.className   = 'card-btn';
+      btn.textContent = '↓ PNG';
+      btn.onclick     = () => download(cv, item.id);
+
+      card.append(idLbl, preview, glbLbl, btn);
+      grid.appendChild(card);
+    }
+
+    status.textContent = `✓ All ${DATA.length} stickers ready — click sticker or ↓ PNG to save.`;
+
+    document.getElementById('dl-all').onclick = async () => {
+      for (const { cv, id } of ready) {
+        download(cv, id);
+        await new Promise(r => setTimeout(r, 400));
+      }
+    };
+  }
+
+  // Ensure Lato is loaded before Canvas text rendering
+  Promise.all([
+    document.fonts.load('900 58px Lato'),
+    document.fonts.load('700 40px Lato'),
+  ]).then(init).catch(init);
+</script>
+</body>
+</html>

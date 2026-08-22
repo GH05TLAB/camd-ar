@@ -101,7 +101,7 @@
   </div>
 
   <div id="ar-ui">
-    <div id="spot-label">HONEYBEE</div>
+    <div id="spot-label"></div>
     <div id="scan-hint">Point camera at any CAMD marker</div>
     <div id="ar-footer">
       <span id="ar-exit-hint">To end the experience tap</span>
@@ -113,12 +113,28 @@
   import * as THREE from 'three';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+  // Model routing: each QR sticker encodes ?m=BOSTONxxx to select a GLB
+  const MODEL_MAP = {
+    BOSTON001: { file: './models/butterfly.glb',                              label: 'BUTTERFLY' },
+    BOSTON002: { file: './models/Lizard.glb',                                 label: 'LIZARD' },
+    BOSTON003: { file: './models/Mechanical_Crab.glb',                        label: 'MECHANICAL CRAB' },
+    BOSTON004: { file: './models/RCP_v06k_UV_SP_v01a.glb',                    label: 'RCP' },
+    BOSTON005: { file: './models/RhinoTexture_v02.glb',                       label: 'RHINO' },
+    BOSTON006: { file: './models/RO59F0~1.glb',                               label: 'MODEL 006' },
+    BOSTON007: { file: './models/RobCre_FilterShark_SR_subspaint_v03.glb',    label: 'FILTER SHARK' },
+    BOSTON008: { file: './models/robotic_scorpion_v03d.glb',                  label: 'ROBOTIC SCORPION' },
+    BOSTON009: { file: './models/SEAHOR~1.glb',                               label: 'SEAHORSE' },
+    BOSTON010: { file: './models/Spider_Robot_v02b.glb',                      label: 'SPIDER ROBOT' },
+  };
+  const _mParam = new URLSearchParams(location.search).get('m');
+  const _mInfo  = MODEL_MAP[_mParam] || { file: './honeybee.glb?v=2', label: 'HONEYBEE' };
+
   // Start downloading the GLB immediately. Use loader.load() (not loadAsync) so we
   // can track real download progress and update the loading screen with a percentage.
   let _glbPct = 0;
   const _glbPreload = new Promise(resolve => {
     new GLTFLoader().load(
-      './honeybee.glb?v=2',
+      _mInfo.file,
       gltf => resolve(gltf),
       xhr  => { if (xhr.total) _glbPct = Math.round(xhr.loaded / xhr.total * 100); },
       ()   => resolve(null)
@@ -132,6 +148,7 @@
   const camFeed        = document.getElementById('cam-feed');
   const scanHint       = document.getElementById('scan-hint');
   const spotLabel      = document.getElementById('spot-label');
+  spotLabel.textContent = _mInfo.label;
 
   let renderer      = null;
   let scene         = null;
