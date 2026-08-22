@@ -7,36 +7,67 @@
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0e0e0e; color: #f0f0f0; font-family: Lato, sans-serif; padding: 2.5rem 2rem; }
-    h1 { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; }
-    .sub { font-size: 0.67rem; color: #444; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 0.35rem; margin-bottom: 1.6rem; font-family: 'Courier New', monospace; }
-    #dl-all { background: #fff; color: #111; border: none; padding: 0.55rem 1.5rem; font-family: Lato, sans-serif; font-weight: 900; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; margin-bottom: 0.6rem; display: block; }
+    body { background: #111; color: #ddd; font-family: Lato, sans-serif; padding: 2rem; }
+    h1   { font-size: 1.2rem; font-weight: 900; letter-spacing: 0.07em; text-transform: uppercase; color: #fff; }
+    .sub { font-size: 0.62rem; color: #444; letter-spacing: 0.12em; text-transform: uppercase;
+           margin-top: 0.3rem; margin-bottom: 0.5rem; font-family: 'Courier New', monospace; }
+    .info { font-size: 0.62rem; color: #888; font-family: 'Courier New', monospace;
+            margin-bottom: 1.5rem; padding: 0.6rem 1rem; border: 1px solid #222; background: #0a0a0a;
+            max-width: 700px; line-height: 1.7; }
+    .info strong { color: #bbb; }
+    #dl-all { background: #fff; color: #111; border: none; padding: 0.5rem 1.4rem;
+              font-family: Lato, sans-serif; font-weight: 900; font-size: 0.65rem;
+              letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+              margin-bottom: 0.5rem; display: block; }
     #dl-all:hover { background: #ddd; }
-    #status { font-size: 0.65rem; color: #444; letter-spacing: 0.06em; margin-bottom: 2rem; font-family: 'Courier New', monospace; height: 1.2rem; }
-    .grid { display: grid; grid-template-columns: repeat(5, 240px); gap: 1.8rem 1.4rem; }
-    .card { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; }
-    canvas.preview { width: 240px; height: 240px; cursor: pointer; border: 1px solid #1e1e1e; transition: border-color 0.15s; }
-    canvas.preview:hover { border-color: #888; }
-    .card-id { font-family: 'Courier New', monospace; font-size: 0.6rem; color: #888; letter-spacing: 0.14em; text-transform: uppercase; }
-    .card-glb { font-size: 0.57rem; color: #444; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-family: 'Courier New', monospace; }
-    .card-btn { background: transparent; border: 1px solid #2a2a2a; color: #555; padding: 0.32rem 0; font-family: Lato, sans-serif; font-weight: 700; font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; width: 100%; transition: all 0.15s; }
-    .card-btn:hover { border-color: #aaa; color: #aaa; }
+    #status { font-size: 0.6rem; color: #444; font-family: 'Courier New', monospace;
+              margin-bottom: 1.8rem; height: 1.1rem; }
+    .grid  { display: grid; grid-template-columns: repeat(5, 220px); gap: 1.6rem 1.2rem; }
+    .card  { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+    canvas.preview { width: 220px; height: 220px; cursor: pointer; border: 1px solid #1a1a1a;
+                     transition: border-color .15s; }
+    canvas.preview:hover { border-color: #666; }
+    .card-id  { font-family: 'Courier New', monospace; font-size: 0.57rem; color: #777;
+                letter-spacing: 0.13em; text-transform: uppercase; }
+    .card-glb { font-size: 0.54rem; color: #333; max-width: 220px; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; text-align: center;
+                font-family: 'Courier New', monospace; }
+    .card-btn { background: transparent; border: 1px solid #222; color: #444; padding: 0.28rem 0;
+                font-family: Lato, sans-serif; font-weight: 700; font-size: 0.55rem;
+                letter-spacing: 0.09em; text-transform: uppercase; cursor: pointer; width: 100%; }
+    .card-btn:hover { border-color: #888; color: #aaa; }
+    #error-msg { display: none; color: #c84; font-family: 'Courier New', monospace;
+                 font-size: 0.65rem; margin-bottom: 1rem; padding: 0.7rem 1rem;
+                 border: 1px solid #c84; background: #1a1500; max-width: 700px; }
   </style>
 </head>
 <body>
 
-<h1>XR Gallery · Boston</h1>
-<div class="sub">CAMD · Northeastern University · Series BOSTON001–010 · 900×900 px / 300 dpi · Real scannable QR codes</div>
+<h1>XR Gallery · Boston Series</h1>
+<div class="sub">CAMD · Northeastern University · BOSTON001–010 · 900×900 px / 300 dpi</div>
 
-<button id="dl-all">↓ Download All PNG</button>
-<div id="status">Loading fonts…</div>
+<div class="info">
+  <strong>Real QR codes</strong> — each encodes a unique URL linking to its 3D model.<br>
+  Click any sticker or <strong>↓ PNG</strong> to download. Requires internet to load QR library.<br>
+  QR→URL mapping: <strong>campus_ar_gamma.html?m=BOSTON001</strong> → butterfly.glb,
+  <strong>?m=BOSTON002</strong> → Lizard.glb, … <strong>?m=BOSTON010</strong> → Spider_Robot.glb
+</div>
+
+<div id="error-msg" id="error-msg">
+  ⚠ Could not load QR library from CDN. Check your internet connection and reload.
+</div>
+
+<button id="dl-all">↓ Download All PNG (900×900)</button>
+<div id="status">Waiting for QR library…</div>
 <div class="grid" id="grid"></div>
 
 <script>
-  const W     = 900;
-  const STRIP = 110;
-  const INNER = W - STRIP * 2;  // 680 px QR zone
+  // Canvas dimensions
+  const W     = 900;   // 3 inches at 300 dpi
+  const STRIP = 70;    // narrow label strip (was 110) — no borders, no separators
+  const INNER = W - STRIP * 2;  // 760 px QR zone
 
+  // Each ID maps to a model in campus_ar_gamma.html MODEL_MAP
   const BASE = 'https://gh05tlab.github.io/camd-ar/campus_ar_gamma.html?m=';
 
   const DATA = [
@@ -52,12 +83,14 @@
     { id: 'BOSTON010', glb: 'Spider_Robot_v02b.glb',                   label: 'SPIDER ROBOT' },
   ];
 
-  function makeQRCanvas(url) {
+  // Generate a QR canvas for the given URL.
+  // margin:4 = spec-minimum quiet zone; errorCorrectionLevel M = good balance
+  function makeQR(url) {
     return new Promise((res, rej) => {
       const c = document.createElement('canvas');
       QRCode.toCanvas(c, url, {
         width: INNER,
-        margin: 2,
+        margin: 4,          // ← spec minimum: 4 modules quiet zone (was 2 — too small)
         color: { dark: '#000000', light: '#ffffff' },
         errorCorrectionLevel: 'M'
       }, err => err ? rej(err) : res(c));
@@ -70,27 +103,20 @@
     cv.height = W;
     const ctx = cv.getContext('2d');
 
-    // White background
+    // --- WHITE BACKGROUND ---
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, W);
 
-    // Real QR code in centre
-    const qr = await makeQRCanvas(BASE + item.id);
+    // --- QR CODE (no borders or lines that touch the quiet zone) ---
+    const qr = await makeQR(BASE + item.id);
     ctx.drawImage(qr, STRIP, STRIP, INNER, INNER);
 
-    // Thin black border around entire sticker
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth   = 5;
-    ctx.strokeRect(2.5, 2.5, W - 5, W - 5);
-
-    // Separator lines between QR zone and label strips
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, STRIP);         ctx.lineTo(W, STRIP);           // top separator
-    ctx.moveTo(0, W - STRIP);     ctx.lineTo(W, W - STRIP);       // bottom separator
-    ctx.moveTo(STRIP, 0);         ctx.lineTo(STRIP, W);           // left separator
-    ctx.moveTo(W - STRIP, 0);     ctx.lineTo(W - STRIP, W);       // right separator
-    ctx.stroke();
+    // --- TEXT LABELS (no strip backgrounds, no separator lines) ---
+    const num  = item.id.replace('BOSTON', '');
+    const MID  = W / 2;
+    const HALF = STRIP / 2;
+    const fs   = Math.round(STRIP * 0.50);   // 35 px — label text
+    const fsN  = Math.round(STRIP * 0.34);   // 24 px — smaller number
 
     const txt = (label, x, y, angle, size, weight) => {
       ctx.save();
@@ -104,21 +130,15 @@
       ctx.restore();
     };
 
-    const num  = item.id.replace('BOSTON', '');
-    const MID  = W / 2;
-    const HALF = STRIP / 2;
-    const fs   = Math.round(STRIP * 0.40);   // label font size
-    const fsN  = Math.round(STRIP * 0.34);   // number font size (smaller)
-
-    txt('AR GALLERY', MID,        HALF,        0,             fs,  '900');  // top
-    txt(num,          MID,        W - HALF,    0,             fsN, '700');  // bottom (smaller)
-    txt('BOSTON',     W - HALF,   MID,         Math.PI / 2,  fs,  '900');  // right  ← swapped
-    txt('CAMD',       HALF,       MID,        -Math.PI / 2,  fs,  '900');  // left   ← swapped
+    txt('AR GALLERY', MID,      HALF,      0,            fs,  '900'); // top
+    txt(num,          MID,      W - HALF,  0,            fsN, '700'); // bottom (small)
+    txt('BOSTON',     W - HALF, MID,       Math.PI / 2, fs,  '900'); // right ← swapped
+    txt('CAMD',       HALF,     MID,      -Math.PI / 2, fs,  '900'); // left  ← swapped
 
     return cv;
   }
 
-  function download(cv, id) {
+  function dl(cv, id) {
     const a = document.createElement('a');
     a.download = id + '.png';
     a.href = cv.toDataURL('image/png');
@@ -127,15 +147,28 @@
 
   const ready = [];
 
-  async function init() {
+  async function run() {
+    // Verify QRCode library loaded
+    if (typeof QRCode === 'undefined') {
+      document.getElementById('error-msg').style.display = 'block';
+      document.getElementById('status').textContent = 'Error: QR library not loaded.';
+      return;
+    }
+
     const grid   = document.getElementById('grid');
     const status = document.getElementById('status');
 
     for (let i = 0; i < DATA.length; i++) {
       const item = DATA[i];
-      status.textContent = `Generating ${item.id} — real QR for ${item.label}… (${i + 1}/${DATA.length})`;
+      status.textContent = `Generating ${item.id} → ${item.label} (${i + 1}/${DATA.length})…`;
 
-      const cv = await buildSticker(item);
+      let cv;
+      try {
+        cv = await buildSticker(item);
+      } catch (e) {
+        status.textContent = `Error on ${item.id}: ${e.message}`;
+        continue;
+      }
       ready.push({ cv, id: item.id });
 
       const card    = document.createElement('div');
@@ -150,8 +183,8 @@
       preview.width  = 900;
       preview.height = 900;
       preview.getContext('2d').drawImage(cv, 0, 0);
-      preview.title   = `Click to download ${item.id}.png`;
-      preview.onclick = () => download(cv, item.id);
+      preview.title   = `Click → download ${item.id}.png`;
+      preview.onclick = () => dl(cv, item.id);
 
       const glbLbl   = document.createElement('div');
       glbLbl.className = 'card-glb';
@@ -160,26 +193,27 @@
       const btn = document.createElement('button');
       btn.className   = 'card-btn';
       btn.textContent = '↓ PNG';
-      btn.onclick     = () => download(cv, item.id);
+      btn.onclick     = () => dl(cv, item.id);
 
       card.append(idLbl, preview, glbLbl, btn);
       grid.appendChild(card);
     }
 
-    status.textContent = `✓ All ${DATA.length} stickers ready with real QR codes — click sticker or ↓ PNG.`;
+    status.textContent = `✓ ${ready.length}/${DATA.length} stickers ready — click or ↓ PNG to download.`;
 
     document.getElementById('dl-all').onclick = async () => {
       for (const { cv, id } of ready) {
-        download(cv, id);
+        dl(cv, id);
         await new Promise(r => setTimeout(r, 400));
       }
     };
   }
 
+  // Wait for Lato font before drawing text to canvas
   Promise.all([
-    document.fonts.load('900 44px Lato'),
-    document.fonts.load('700 38px Lato'),
-  ]).then(init).catch(init);
+    document.fonts.load('900 35px Lato'),
+    document.fonts.load('700 24px Lato'),
+  ]).then(run).catch(run);
 </script>
 </body>
 </html>
