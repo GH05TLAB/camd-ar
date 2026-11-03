@@ -444,8 +444,9 @@
       const size = new THREE.Vector3();
       box.getSize(size);
       const ns = 0.5 / Math.max(size.x, size.y, size.z);
-      content.scale.setScalar(ns);
-      content.userData.nominalScale = ns;
+      const nsFinal = _mParam === 'WOLF001' ? ns * (2 / 3) : ns;
+      content.scale.setScalar(nsFinal);
+      content.userData.nominalScale = nsFinal;
 
       // No rotation — natural GLB orientation is Y-up (same as alpha/beta builders).
       // Re-measure after scaling to centre X/Z.
@@ -479,7 +480,7 @@
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
           if (_mParam !== 'WOLF001') autoRotY += 0.003;
-          content.rotation.y = _mParam === 'WOLF001' ? 0 : userRotY + autoRotY;
+          content.rotation.y = _mParam === 'WOLF001' ? Math.PI : userRotY + autoRotY;
           content.scale.setScalar(content.userData.nominalScale);
         }
         if (ambientLight) {
