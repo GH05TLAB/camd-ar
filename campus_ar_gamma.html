@@ -184,21 +184,44 @@
   let lightTickCount = 0;   // analyse lighting every 5th QR scan (~2 fps)
 
   // Touch-drag rotation state
-  let userRotY   = 0;      // accumulated Y rotation set by user drag (radians)
-  let autoRotY   = 0;      // slow idle spin around Y axis
-  let lastTouchX = null;   // previous touch X for delta calculation
+  let userRotY      = 0;         // accumulated Y rotation for BOSTON models
+  let autoRotY      = 0;         // slow idle spin around Y axis
+  let lastTouchX    = null;      // previous touch X for single-finger drag
+  let lastPinchDist = null;      // previous pinch distance for two-finger zoom
+  let wolfRotY      = Math.PI * 1.5; // initial Y rotation for WOLF001 (front facing camera)
+  let wolfScale     = 1.0;       // pinch-to-zoom multiplier for WOLF001
 
   function onTouchStart(e) {
-    if (e.touches.length === 1) lastTouchX = e.touches[0].clientX;
+    if (e.touches.length === 1) {
+      lastTouchX    = e.touches[0].clientX;
+      lastPinchDist = null;
+    } else if (e.touches.length === 2) {
+      lastTouchX    = null;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastPinchDist = Math.hypot(dx, dy);
+    }
   }
   function onTouchMove(e) {
-    if (e.touches.length !== 1 || lastTouchX === null) return;
-    e.preventDefault(); // stop page scroll while rotating
-    const dx = e.touches[0].clientX - lastTouchX;
-    lastTouchX = e.touches[0].clientX;
-    userRotY += dx * 0.012; // ~180° across half the screen width
+    e.preventDefault();
+    if (e.touches.length === 1 && lastTouchX !== null) {
+      const dx = e.touches[0].clientX - lastTouchX;
+      lastTouchX = e.touches[0].clientX;
+      if (_mParam === 'WOLF001') wolfRotY  += dx * 0.012;
+      else                       userRotY  += dx * 0.012;
+    } else if (e.touches.length === 2 && lastPinchDist !== null && _mParam === 'WOLF001') {
+      const dx   = e.touches[0].clientX - e.touches[1].clientX;
+      const dy   = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      wolfScale *= dist / lastPinchDist;
+      wolfScale  = Math.max(0.25, Math.min(4.0, wolfScale));
+      lastPinchDist = dist;
+    }
   }
-  function onTouchEnd() { lastTouchX = null; }
+  function onTouchEnd(e) {
+    lastTouchX = null;
+    if (e.touches.length < 2) lastPinchDist = null;
+  }
 
   // Offscreen canvas — drawn at reduced size so jsQR runs fast
   const SCAN_W = 480;
@@ -479,9 +502,14 @@
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
-          if (_mParam !== 'WOLF001') autoRotY += 0.003;
-          content.rotation.y = _mParam === 'WOLF001' ? Math.PI : userRotY + autoRotY;
-          content.scale.setScalar(content.userData.nominalScale);
+          if (_mParam === 'WOLF001') {
+            content.rotation.y = wolfRotY;
+            content.scale.setScalar(content.userData.nominalScale * wolfScale);
+          } else {
+            autoRotY += 0.003;
+            content.rotation.y = userRotY + autoRotY;
+            content.scale.setScalar(content.userData.nominalScale);
+          }
         }
         if (ambientLight) {
           ambientLight.color.lerp(lt.ambColor, LIGHT_LERP);
