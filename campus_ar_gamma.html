@@ -188,18 +188,25 @@
   let autoRotY      = 0;         // slow idle spin around Y axis
   let lastTouchX    = null;      // previous touch X for single-finger drag
   let lastPinchDist = null;      // previous pinch distance for two-finger zoom
-  let wolfRotY      = Math.PI * 1.5; // initial Y rotation for WOLF001 (front facing camera)
-  let wolfScale     = 1.0;       // pinch-to-zoom multiplier for WOLF001
+  let wolfRotY      = Math.PI / 2;   // initial Y rotation for WOLF001 (front facing camera)
+  let wolfScale     = 1.0;           // pinch-to-zoom multiplier for WOLF001
+  let wolfPanX      = 0;             // world-space X offset from two-finger pan
+  let wolfPanY      = 0;             // world-space Y offset from two-finger pan
+  let lastMidX      = null;
+  let lastMidY      = null;
 
   function onTouchStart(e) {
     if (e.touches.length === 1) {
       lastTouchX    = e.touches[0].clientX;
       lastPinchDist = null;
+      lastMidX = lastMidY = null;
     } else if (e.touches.length === 2) {
-      lastTouchX    = null;
+      lastTouchX = null;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       lastPinchDist = Math.hypot(dx, dy);
+      lastMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      lastMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     }
   }
   function onTouchMove(e) {
@@ -207,20 +214,32 @@
     if (e.touches.length === 1 && lastTouchX !== null) {
       const dx = e.touches[0].clientX - lastTouchX;
       lastTouchX = e.touches[0].clientX;
-      if (_mParam === 'WOLF001') wolfRotY  += dx * 0.012;
-      else                       userRotY  += dx * 0.012;
-    } else if (e.touches.length === 2 && lastPinchDist !== null && _mParam === 'WOLF001') {
+      if (_mParam === 'WOLF001') wolfRotY += dx * 0.012;
+      else                       userRotY += dx * 0.012;
+    } else if (e.touches.length === 2 && _mParam === 'WOLF001') {
       const dx   = e.touches[0].clientX - e.touches[1].clientX;
       const dy   = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
-      wolfScale *= dist / lastPinchDist;
-      wolfScale  = Math.max(0.25, Math.min(4.0, wolfScale));
+      const mx   = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my   = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      // pinch
+      if (lastPinchDist !== null) {
+        wolfScale *= dist / lastPinchDist;
+        wolfScale  = Math.max(0.25, Math.min(4.0, wolfScale));
+      }
+      // two-finger pan
+      if (lastMidX !== null) {
+        wolfPanX += (mx - lastMidX) * 0.0006;
+        wolfPanY -= (my - lastMidY) * 0.0006;
+      }
       lastPinchDist = dist;
+      lastMidX = mx;
+      lastMidY = my;
     }
   }
   function onTouchEnd(e) {
     lastTouchX = null;
-    if (e.touches.length < 2) lastPinchDist = null;
+    if (e.touches.length < 2) { lastPinchDist = null; lastMidX = lastMidY = null; }
   }
 
   // Offscreen canvas — drawn at reduced size so jsQR runs fast
@@ -501,7 +520,10 @@
       // 7. Render loop — lerp content position, apply user rotation, lerp lights
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
-          content.position.lerp(targetPos, 0.18);
+          const _wp = _mParam === 'WOLF001'
+            ? new THREE.Vector3(targetPos.x + wolfPanX, targetPos.y + wolfPanY, targetPos.z)
+            : targetPos;
+          content.position.lerp(_wp, 0.18);
           if (_mParam === 'WOLF001') {
             content.rotation.y = wolfRotY;
             content.scale.setScalar(content.userData.nominalScale * wolfScale);
