@@ -478,8 +478,8 @@
       renderer.setAnimationLoop(() => {
         if (qrDetected && content) {
           content.position.lerp(targetPos, 0.18);
-          autoRotY += 0.003; // ~10°/s at 60fps — gentle idle spin
-          content.rotation.y = userRotY + autoRotY;
+          if (_mParam !== 'WOLF001') autoRotY += 0.003;
+          content.rotation.y = _mParam === 'WOLF001' ? 0 : userRotY + autoRotY;
           content.scale.setScalar(content.userData.nominalScale);
         }
         if (ambientLight) {
